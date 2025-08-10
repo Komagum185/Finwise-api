@@ -4,7 +4,9 @@ from .views import (
     RegisterView, LoginView, LogoutView, UserProfileView, 
     ChangePasswordView, user_stats, PendingRegistrationsView,
     ApproveRegistrationView, RejectRegistrationView, VerifyOTPView,
-    ResendOTPView, RegisterWithApprovalView
+    ResendOTPView, RegisterWithApprovalView, EnhancedRegistrationView,
+    RegistrationProgressView, RegistrationStatusView, UserOnboardingView,
+    RegistrationAnalyticsView
 )
 
 urlpatterns = [
@@ -28,4 +30,11 @@ urlpatterns = [
     # OTP verification
     path('verify-otp/', VerifyOTPView.as_view(), name='verify_otp'),
     path('resend-otp/', ResendOTPView.as_view(), name='resend_otp'),
+
+    # Enhanced registration endpoints
+    path('register-enhanced/', EnhancedRegistrationView.as_view(), name='register-enhanced'),
+    path('registration-progress/<uuid:registration_id>/', RegistrationProgressView.as_view(), name='registration-progress'),
+    path('registration-status/<uuid:registration_id>/', RegistrationStatusView.as_view(), name='registration-status'),
+    path('onboarding/', UserOnboardingView.as_view(), name='user-onboarding'),
+    path('registration-analytics/', RegistrationAnalyticsView.as_view(), name='registration-analytics'),
 ] 

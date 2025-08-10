@@ -24,6 +24,56 @@ class CustomUser(AbstractUser):
     default_currency = models.CharField(max_length=3, default='UGX')
     monthly_income = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
     
+    # Enhanced registration fields
+    address = models.CharField(max_length=500, blank=True)
+    city = models.CharField(max_length=100, blank=True)
+    country = models.CharField(max_length=100, blank=True)
+    postal_code = models.CharField(max_length=20, blank=True)
+    
+    # Employment information
+    employment_status = models.CharField(
+        max_length=20,
+        choices=[
+            ('employed', 'Employed'),
+            ('self_employed', 'Self Employed'),
+            ('unemployed', 'Unemployed'),
+            ('student', 'Student'),
+            ('retired', 'Retired'),
+        ],
+        blank=True
+    )
+    employer_name = models.CharField(max_length=200, blank=True)
+    job_title = models.CharField(max_length=100, blank=True)
+    
+    # Banking preferences
+    preferred_banking_hours = models.CharField(
+        max_length=20,
+        choices=[
+            ('morning', 'Morning (8AM-12PM)'),
+            ('afternoon', 'Afternoon (12PM-5PM)'),
+            ('evening', 'Evening (5PM-8PM)'),
+            ('anytime', 'Anytime'),
+        ],
+        blank=True
+    )
+    communication_preference = models.CharField(
+        max_length=10,
+        choices=[
+            ('email', 'Email'),
+            ('sms', 'SMS'),
+            ('both', 'Both'),
+        ],
+        default='email'
+    )
+    
+    # Marketing and terms
+    marketing_consent = models.BooleanField(default=False)
+    terms_accepted_at = models.DateTimeField(null=True, blank=True)
+    
+    # Onboarding tracking
+    onboarding_completed = models.BooleanField(default=False)
+    onboarding_completed_at = models.DateTimeField(null=True, blank=True)
+    
     # Timestamps
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -39,6 +89,23 @@ class CustomUser(AbstractUser):
     def full_name(self):
         """Return the full name of the user"""
         return f"{self.first_name} {self.last_name}".strip() or self.username
+    
+    @property
+    def is_onboarding_complete(self):
+        """Check if user has completed onboarding"""
+        required_fields = ['phone_number', 'date_of_birth', 'first_name', 'last_name']
+        return all(getattr(self, field) for field in required_fields)
+    
+    def mark_terms_accepted(self):
+        """Mark that user has accepted terms and conditions"""
+        self.terms_accepted_at = timezone.now()
+        self.save()
+    
+    def complete_onboarding(self):
+        """Mark onboarding as completed"""
+        self.onboarding_completed = True
+        self.onboarding_completed_at = timezone.now()
+        self.save()
 
 
 class PendingRegistration(models.Model):

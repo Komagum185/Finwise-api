@@ -8,7 +8,7 @@ from rest_framework_simplejwt.views import TokenObtainPairView
 from django.contrib.auth import authenticate
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError
-from django.db import transaction
+from django.db import models, transaction
 from django.utils import timezone
 
 from .models import CustomUser, PendingRegistration, OTPVerification
@@ -595,3 +595,250 @@ class RegisterWithApprovalView(APIView):
             'registration_id': registration.id,
             'otp_sent': True
         }, status=status.HTTP_201_CREATED)
+
+
+class EnhancedRegistrationView(APIView):
+    """Enhanced registration view with multi-step process and questbanker-app integration"""
+    permission_classes = [permissions.AllowAny]
+    
+    def post(self, request):
+        """Handle enhanced registration with additional fields"""
+        serializer = EnhancedRegistrationSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        
+        data = serializer.validated_data
+        
+        # Check if user already exists
+        if CustomUser.objects.filter(username=data['username']).exists():
+            return Response(
+                {'error': 'Username already exists'}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        if CustomUser.objects.filter(email=data['email']).exists():
+            return Response(
+                {'error': 'Email already exists'}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Validate password
+        try:
+            validate_password(data['password'])
+        except ValidationError as e:
+            return Response(
+                {'error': e.messages[0]}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        with transaction.atomic():
+            # Create pending registration with enhanced data
+            registration = PendingRegistration.objects.create(
+                username=data['username'],
+                email=data['email'],
+                first_name=data['first_name'],
+                last_name=data['last_name'],
+                phone_number=data.get('phone_number', ''),
+                date_of_birth=data.get('date_of_birth'),
+                default_currency=data.get('default_currency', 'UGX'),
+                monthly_income=data.get('monthly_income'),
+                # Store additional data in a JSON field or create related model
+            )
+            
+            # Generate OTP for verification
+            otp_code = registration.generate_otp()
+            
+            # Send OTP via email
+            send_otp_email(registration.email, otp_code, 'email_verification')
+            
+            return Response({
+                'message': 'Registration submitted successfully. Please verify your email.',
+                'registration_id': registration.id,
+                'otp_sent': True,
+                'next_step': 'email_verification'
+            }, status=status.HTTP_201_CREATED)
+
+
+class RegistrationProgressView(APIView):
+    """View for tracking registration progress"""
+    permission_classes = [permissions.AllowAny]
+    
+    def get(self, request, registration_id):
+        """Get registration progress"""
+        try:
+            registration = PendingRegistration.objects.get(id=registration_id)
+        except PendingRegistration.DoesNotExist:
+            return Response(
+                {'error': 'Registration not found'}, 
+                status=status.HTTP_404_NOT_FOUND
+            )
+        
+        # Define registration steps
+        steps = [
+            {'id': 'basic_info', 'name': 'Basic Information', 'completed': True},
+            {'id': 'email_verification', 'name': 'Email Verification', 'completed': registration.otp_verified},
+            {'id': 'admin_approval', 'name': 'Admin Approval', 'completed': registration.status == 'approved'},
+            {'id': 'password_setup', 'name': 'Password Setup', 'completed': registration.status == 'approved'},
+            {'id': 'onboarding', 'name': 'Onboarding', 'completed': False}
+        ]
+        
+        current_step = 1
+        if registration.otp_verified:
+            current_step = 2
+        if registration.status == 'approved':
+            current_step = 3
+        
+        completed_steps = [step['id'] for step in steps if step['completed']]
+        
+        progress_data = {
+            'step': current_step,
+            'total_steps': len(steps),
+            'current_step_name': steps[current_step - 1]['name'],
+            'completed_steps': completed_steps,
+            'next_step': steps[current_step]['name'] if current_step < len(steps) else None,
+            'can_proceed': registration.otp_verified if current_step == 1 else True
+        }
+        
+        serializer = RegistrationProgressSerializer(progress_data)
+        return Response(serializer.data)
+
+
+class RegistrationStatusView(APIView):
+    """View for checking registration status"""
+    permission_classes = [permissions.AllowAny]
+    
+    def get(self, request, registration_id):
+        """Get registration status and next actions"""
+        try:
+            registration = PendingRegistration.objects.get(id=registration_id)
+        except PendingRegistration.DoesNotExist:
+            return Response(
+                {'error': 'Registration not found'}, 
+                status=status.HTTP_404_NOT_FOUND
+            )
+        
+        serializer = RegistrationStatusSerializer(registration)
+        return Response(serializer.data)
+
+
+class UserOnboardingView(APIView):
+    """View for user onboarding after approval"""
+    permission_classes = [permissions.IsAuthenticated]
+    
+    def get(self, request):
+        """Get user onboarding status"""
+        serializer = UserOnboardingSerializer(request.user)
+        return Response(serializer.data)
+    
+    def post(self, request):
+        """Update user onboarding information"""
+        user = request.user
+        data = request.data
+        
+        # Update onboarding fields
+        allowed_fields = [
+            'phone_number', 'date_of_birth', 'default_currency', 
+            'monthly_income', 'profile_picture'
+        ]
+        
+        for field in allowed_fields:
+            if field in data:
+                setattr(user, field, data[field])
+        
+        # Handle phone verification
+        if 'phone_number' in data and data['phone_number'] != user.phone_number:
+            user.is_verified = False  # Reset verification status
+        
+        user.save()
+        
+        serializer = UserOnboardingSerializer(user)
+        return Response({
+            'message': 'Onboarding information updated successfully',
+            'user': serializer.data
+        })
+
+
+class RegistrationAnalyticsView(APIView):
+    """View for registration analytics (Admin only)"""
+    permission_classes = [permissions.IsAuthenticated]
+    
+    def get(self, request):
+        """Get registration analytics"""
+        if not request.user.is_staff:
+            return Response(
+                {'error': 'Access denied. Admin privileges required.'}, 
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        from django.db.models import Count
+        from django.utils import timezone
+        from datetime import timedelta
+        
+        # Get date range from query params
+        days = int(request.query_params.get('days', 30))
+        start_date = timezone.now() - timedelta(days=days)
+        
+        # Registration statistics
+        total_registrations = PendingRegistration.objects.filter(
+            submitted_at__gte=start_date
+        ).count()
+        
+        pending_registrations = PendingRegistration.objects.filter(
+            status='pending',
+            submitted_at__gte=start_date
+        ).count()
+        
+        approved_registrations = PendingRegistration.objects.filter(
+            status='approved',
+            submitted_at__gte=start_date
+        ).count()
+        
+        rejected_registrations = PendingRegistration.objects.filter(
+            status='rejected',
+            submitted_at__gte=start_date
+        ).count()
+        
+        # Daily registration trends
+        daily_registrations = PendingRegistration.objects.filter(
+            submitted_at__gte=start_date
+        ).extra(
+            select={'day': 'date(submitted_at)'}
+        ).values('day').annotate(
+            count=Count('id')
+        ).order_by('day')
+        
+        # Average approval time
+        approved_with_review = PendingRegistration.objects.filter(
+            status='approved',
+            reviewed_at__isnull=False,
+            submitted_at__gte=start_date
+        )
+        
+        if approved_with_review.exists():
+            avg_approval_time = approved_with_review.aggregate(
+                avg_time=models.Avg(
+                    models.F('reviewed_at') - models.F('submitted_at')
+                )
+            )['avg_time']
+            avg_approval_hours = avg_approval_time.total_seconds() / 3600
+        else:
+            avg_approval_hours = 0
+        
+        analytics = {
+            'period': f'Last {days} days',
+            'total_registrations': total_registrations,
+            'pending_registrations': pending_registrations,
+            'approved_registrations': approved_registrations,
+            'rejected_registrations': rejected_registrations,
+            'approval_rate': (approved_registrations / total_registrations * 100) if total_registrations > 0 else 0,
+            'average_approval_time_hours': round(avg_approval_hours, 2),
+            'daily_trends': list(daily_registrations),
+            'recent_registrations': PendingRegistrationSerializer(
+                PendingRegistration.objects.filter(
+                    submitted_at__gte=start_date
+                ).order_by('-submitted_at')[:10], 
+                many=True
+            ).data
+        }
+        
+        return Response(analytics)

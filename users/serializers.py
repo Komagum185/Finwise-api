@@ -1,7 +1,7 @@
 from rest_framework import serializers
 from django.contrib.auth import get_user_model
 from django.contrib.auth.password_validation import validate_password
-from .models import PendingRegistration, OTPVerification
+from .models import PendingRegistration, OTPVerification, CustomUser
 
 User = get_user_model()
 
@@ -161,3 +161,169 @@ class VerifyOTPSerializer(serializers.Serializer):
 class ResendOTPSerializer(serializers.Serializer):
     """Serializer for resending OTP"""
     purpose = serializers.ChoiceField(choices=OTPVerification.PURPOSE_CHOICES) 
+
+
+class EnhancedRegistrationSerializer(serializers.ModelSerializer):
+    """Enhanced registration serializer with additional fields for questbanker-app integration"""
+    
+    # Additional fields for enhanced registration
+    profile_picture = serializers.ImageField(required=False)
+    address = serializers.CharField(max_length=500, required=False)
+    city = serializers.CharField(max_length=100, required=False)
+    country = serializers.CharField(max_length=100, required=False)
+    postal_code = serializers.CharField(max_length=20, required=False)
+    
+    # Financial profile fields
+    employment_status = serializers.ChoiceField(
+        choices=[
+            ('employed', 'Employed'),
+            ('self_employed', 'Self Employed'),
+            ('unemployed', 'Unemployed'),
+            ('student', 'Student'),
+            ('retired', 'Retired'),
+        ],
+        required=False
+    )
+    employer_name = serializers.CharField(max_length=200, required=False)
+    job_title = serializers.CharField(max_length=100, required=False)
+    
+    # Banking preferences
+    preferred_banking_hours = serializers.ChoiceField(
+        choices=[
+            ('morning', 'Morning (8AM-12PM)'),
+            ('afternoon', 'Afternoon (12PM-5PM)'),
+            ('evening', 'Evening (5PM-8PM)'),
+            ('anytime', 'Anytime'),
+        ],
+        required=False
+    )
+    communication_preference = serializers.ChoiceField(
+        choices=[
+            ('email', 'Email'),
+            ('sms', 'SMS'),
+            ('both', 'Both'),
+        ],
+        default='email'
+    )
+    
+    # Terms and conditions
+    terms_accepted = serializers.BooleanField(required=True)
+    marketing_consent = serializers.BooleanField(default=False)
+    
+    class Meta:
+        model = PendingRegistration
+        fields = [
+            'username', 'email', 'password', 'password_confirm',
+            'first_name', 'last_name', 'phone_number', 'date_of_birth',
+            'default_currency', 'monthly_income', 'profile_picture',
+            'address', 'city', 'country', 'postal_code',
+            'employment_status', 'employer_name', 'job_title',
+            'preferred_banking_hours', 'communication_preference',
+            'terms_accepted', 'marketing_consent'
+        ]
+        extra_kwargs = {
+            'password': {'write_only': True},
+            'password_confirm': {'write_only': True},
+        }
+    
+    def validate_terms_accepted(self, value):
+        if not value:
+            raise serializers.ValidationError("You must accept the terms and conditions")
+        return value
+    
+    def validate(self, data):
+        if data.get('password') != data.get('password_confirm'):
+            raise serializers.ValidationError("Passwords do not match")
+        return data
+
+
+class RegistrationProgressSerializer(serializers.Serializer):
+    """Serializer for tracking registration progress"""
+    step = serializers.IntegerField()
+    total_steps = serializers.IntegerField()
+    current_step_name = serializers.CharField()
+    completed_steps = serializers.ListField(child=serializers.CharField())
+    next_step = serializers.CharField(required=False)
+    can_proceed = serializers.BooleanField()
+
+
+class RegistrationStatusSerializer(serializers.ModelSerializer):
+    """Serializer for registration status updates"""
+    estimated_approval_time = serializers.SerializerMethodField()
+    next_actions = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = PendingRegistration
+        fields = [
+            'id', 'status', 'submitted_at', 'reviewed_at',
+            'estimated_approval_time', 'next_actions', 'otp_verified'
+        ]
+    
+    def get_estimated_approval_time(self, obj):
+        """Calculate estimated approval time based on business hours"""
+        if obj.status == 'pending':
+            # Return estimated time (e.g., "2-4 business hours")
+            return "2-4 business hours"
+        return None
+    
+    def get_next_actions(self, obj):
+        """Return next actions for the user"""
+        if obj.status == 'pending' and not obj.otp_verified:
+            return ["Verify your email with the OTP sent"]
+        elif obj.status == 'pending' and obj.otp_verified:
+            return ["Wait for admin approval", "Check your email for updates"]
+        elif obj.status == 'approved':
+            return ["Set your password", "Complete your profile"]
+        elif obj.status == 'rejected':
+            return ["Review rejection reason", "Contact support if needed"]
+        return []
+
+
+class UserOnboardingSerializer(serializers.ModelSerializer):
+    """Serializer for user onboarding after approval"""
+    onboarding_completed = serializers.SerializerMethodField()
+    onboarding_steps = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = CustomUser
+        fields = [
+            'id', 'username', 'email', 'first_name', 'last_name',
+            'phone_number', 'is_verified', 'onboarding_completed',
+            'onboarding_steps'
+        ]
+    
+    def get_onboarding_completed(self, obj):
+        """Check if user has completed onboarding"""
+        # Define onboarding completion criteria
+        required_fields = ['phone_number', 'date_of_birth']
+        return all(getattr(obj, field) for field in required_fields)
+    
+    def get_onboarding_steps(self, obj):
+        """Return onboarding steps and their completion status"""
+        steps = [
+            {
+                'id': 'profile_completion',
+                'name': 'Complete Profile',
+                'completed': bool(obj.first_name and obj.last_name),
+                'required': True
+            },
+            {
+                'id': 'phone_verification',
+                'name': 'Verify Phone Number',
+                'completed': obj.is_verified,
+                'required': True
+            },
+            {
+                'id': 'financial_preferences',
+                'name': 'Set Financial Preferences',
+                'completed': bool(obj.default_currency and obj.monthly_income),
+                'required': False
+            },
+            {
+                'id': 'security_setup',
+                'name': 'Security Setup',
+                'completed': True,  # Assuming they've set password
+                'required': True
+            }
+        ]
+        return steps 
