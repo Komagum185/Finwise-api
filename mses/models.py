@@ -235,6 +235,72 @@ class Wallet(models.Model):
         super().save(*args, **kwargs)
 
 
+class WalletTransaction(models.Model):
+    """Wallet transaction model for tracking all wallet activities"""
+    TRANSACTION_TYPES = [
+        ('credit', 'Credit'),
+        ('debit', 'Debit'),
+        ('transfer', 'Transfer'),
+        ('withdrawal', 'Withdrawal'),
+        ('deposit', 'Deposit'),
+    ]
+    
+    STATUS_CHOICES = [
+        ('completed', 'Completed'),
+        ('pending', 'Pending'),
+        ('failed', 'Failed'),
+        ('cancelled', 'Cancelled'),
+    ]
+    
+    CATEGORY_CHOICES = [
+        ('payment', 'Payment'),
+        ('purchase', 'Purchase'),
+        ('sale', 'Sale'),
+        ('transfer', 'Transfer'),
+        ('fee', 'Fee'),
+        ('refund', 'Refund'),
+    ]
+    
+    wallet = models.ForeignKey(Wallet, on_delete=models.CASCADE, related_name='transactions')
+    transaction_type = models.CharField(max_length=20, choices=TRANSACTION_TYPES)
+    amount = models.DecimalField(max_digits=15, decimal_places=2)
+    description = models.TextField()
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
+    reference = models.CharField(max_length=100, blank=True)
+    category = models.CharField(max_length=20, choices=CATEGORY_CHOICES, blank=True)
+    related_transaction = models.ForeignKey('self', on_delete=models.SET_NULL, null=True, blank=True, related_name='related_transactions')
+    transaction_date = models.DateTimeField(auto_now_add=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    class Meta:
+        ordering = ['-transaction_date']
+        verbose_name = "Wallet Transaction"
+        verbose_name_plural = "Wallet Transactions"
+    
+    def __str__(self):
+        return f"{self.wallet.name} - {self.get_transaction_type_display()} - {self.amount}"
+    
+    def clean(self):
+        if self.amount <= 0:
+            raise ValidationError("Transaction amount must be positive")
+    
+    def save(self, *args, **kwargs):
+        self.clean()
+        super().save(*args, **kwargs)
+        
+        # Update wallet balance based on transaction
+        if self.status == 'completed':
+            if self.transaction_type in ['credit', 'deposit']:
+                self.wallet.balance += self.amount
+            elif self.transaction_type in ['debit', 'withdrawal']:
+                self.wallet.balance -= self.amount
+            elif self.transaction_type == 'transfer':
+                # Handle transfer logic
+                pass
+            self.wallet.save()
+
+
 class UserRole(models.Model):
     """User role model for business management"""
     ROLE_CHOICES = [

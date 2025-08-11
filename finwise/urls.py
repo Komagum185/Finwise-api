@@ -21,10 +21,10 @@ from django.conf.urls.static import static
 
 urlpatterns = [
     path('admin/', admin.site.urls),
-    path('api/', include('api.urls')),
+    path('api/wallet/', include('wallet.urls')),  # Consolidated from api + finance_app
     path('api/auth/', include('users.urls')),
-    path('api/mses/', include('mses.urls')),
-    path('api/markets/', include('markets.urls')),
+    path('api/mses/', include('mses.urls')),       # Use existing mses app
+    path('api/markets/', include('markets.urls')), # Use existing markets app
     path('api/reports/', include('reports.urls')),
     path('api/dashboard/', include('dashboard.urls')),
 ]

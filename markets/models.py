@@ -34,14 +34,36 @@ class Market(models.Model):
 
 class Producer(models.Model):
     """Producer/Supplier model"""
+    SUPPLIER_TYPES = [
+        ('individual', 'Individual'),
+        ('business', 'Business'),
+        ('farmer', 'Farmer'),
+        ('distributor', 'Distributor'),
+    ]
+    
+    STATUS_CHOICES = [
+        ('active', 'Active'),
+        ('inactive', 'Inactive'),
+        ('pending', 'Pending'),
+        ('suspended', 'Suspended'),
+    ]
+    
     mse = models.ForeignKey(MSE, on_delete=models.CASCADE, related_name='producers')
     name = models.CharField(max_length=200)
     contact_person = models.CharField(max_length=100, blank=True)
     phone = models.CharField(max_length=20, blank=True)
     email = models.EmailField(blank=True)
     address = models.TextField(blank=True)
+    location = models.CharField(max_length=200, blank=True)
+    supplier_type = models.CharField(max_length=20, choices=SUPPLIER_TYPES, default='business')
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='active')
+    business_type = models.CharField(max_length=100, blank=True)
+    tax_id = models.CharField(max_length=100, blank=True)
     products_supplied = models.TextField(blank=True)
     payment_terms = models.CharField(max_length=100, blank=True)
+    delivery_time = models.CharField(max_length=100, blank=True)
+    minimum_order = models.DecimalField(max_digits=15, decimal_places=2, default=0.00)
+    rating = models.DecimalField(max_digits=3, decimal_places=2, default=0.00)
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -60,14 +82,34 @@ class Producer(models.Model):
 
 class Customer(models.Model):
     """Customer model"""
+    CUSTOMER_TYPES = [
+        ('individual', 'Individual'),
+        ('business', 'Business'),
+        ('farmer', 'Farmer'),
+        ('distributor', 'Distributor'),
+    ]
+    
+    STATUS_CHOICES = [
+        ('active', 'Active'),
+        ('inactive', 'Inactive'),
+        ('pending', 'Pending'),
+    ]
+    
     mse = models.ForeignKey(MSE, on_delete=models.CASCADE, related_name='customers')
     name = models.CharField(max_length=200)
     contact_person = models.CharField(max_length=100, blank=True)
     phone = models.CharField(max_length=20, blank=True)
     email = models.EmailField(blank=True)
     address = models.TextField(blank=True)
+    location = models.CharField(max_length=200, blank=True)
+    customer_type = models.CharField(max_length=20, choices=CUSTOMER_TYPES, default='individual')
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='active')
+    business_type = models.CharField(max_length=100, blank=True)
+    tax_id = models.CharField(max_length=100, blank=True)
     credit_limit = models.DecimalField(max_digits=15, decimal_places=2, default=0.00)
     payment_terms = models.CharField(max_length=100, blank=True)
+    total_purchases = models.DecimalField(max_digits=15, decimal_places=2, default=0.00)
+    last_purchase_date = models.DateTimeField(null=True, blank=True)
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
