@@ -85,6 +85,166 @@ class EnhancedWalletViewSet(viewsets.ModelViewSet):
         serializer = self.get_serializer(wallet)
         return Response(serializer.data)
 
+    @action(detail=True, methods=['get'])
+    def analytics(self, request, pk=None):
+        """Get comprehensive wallet analytics"""
+        wallet = self.get_object()
+        
+        # Get transaction statistics
+        transactions = EnhancedWalletTransaction.objects.filter(wallet=wallet)
+        
+        # Monthly trends
+        monthly_data = transactions.extra(
+            select={'month': "EXTRACT(month FROM date)"}
+        ).values('month').annotate(
+            total_income=Sum('amount', filter=Q(type='credit')),
+            total_expense=Sum('amount', filter=Q(type='debit')),
+            transaction_count=Count('id')
+        ).order_by('month')
+        
+        # Category breakdown
+        category_data = transactions.values('category__name').annotate(
+            total_amount=Sum('amount'),
+            transaction_count=Count('id')
+        ).order_by('-total_amount')[:10]
+        
+        # Balance history (last 30 days)
+        from datetime import timedelta
+        thirty_days_ago = timezone.now().date() - timedelta(days=30)
+        balance_history = transactions.filter(
+            date__gte=thirty_days_ago
+        ).extra(
+            select={'date': "DATE(date)"}
+        ).values('date').annotate(
+            daily_balance=Sum('amount', filter=Q(type='credit')) - Sum('amount', filter=Q(type='debit'))
+        ).order_by('date')
+        
+        return Response({
+            'wallet_id': wallet.id,
+            'current_balance': wallet.balance,
+            'currency': wallet.currency,
+            'monthly_trends': list(monthly_data),
+            'top_categories': list(category_data),
+            'balance_history': list(balance_history),
+            'total_transactions': transactions.count(),
+            'last_transaction_date': transactions.order_by('-date').first().date if transactions.exists() else None
+        })
+
+    @action(detail=True, methods=['get'])
+    def risk_assessment(self, request, pk=None):
+        """Get wallet risk assessment"""
+        wallet = self.get_object()
+        
+        # Calculate risk factors
+        transactions = EnhancedWalletTransaction.objects.filter(wallet=wallet)
+        recent_transactions = transactions.filter(
+            date__gte=timezone.now().date() - timedelta(days=7)
+        )
+        
+        # Risk indicators
+        risk_factors = {
+            'high_frequency_transactions': recent_transactions.count() > 20,
+            'large_transactions': transactions.filter(amount__gt=wallet.balance * 0.5).exists(),
+            'negative_balance_history': transactions.filter(
+                type='debit', amount__gt=wallet.balance
+            ).exists(),
+            'unusual_patterns': recent_transactions.filter(
+                amount__gt=wallet.balance * 0.3
+            ).count() > 3
+        }
+        
+        risk_score = sum(risk_factors.values())
+        risk_level = 'LOW' if risk_score == 0 else 'MEDIUM' if risk_score <= 2 else 'HIGH'
+        
+        return Response({
+            'wallet_id': wallet.id,
+            'risk_level': risk_level,
+            'risk_score': risk_score,
+            'risk_factors': risk_factors,
+            'recommendations': self._get_risk_recommendations(risk_level, risk_factors)
+        })
+
+    def _get_risk_recommendations(self, risk_level, risk_factors):
+        """Get risk mitigation recommendations"""
+        recommendations = []
+        
+        if risk_factors['high_frequency_transactions']:
+            recommendations.append("Consider implementing transaction limits")
+        
+        if risk_factors['large_transactions']:
+            recommendations.append("Review large transaction patterns")
+        
+        if risk_factors['negative_balance_history']:
+            recommendations.append("Monitor balance closely to avoid overdrafts")
+        
+        if risk_factors['unusual_patterns']:
+            recommendations.append("Investigate unusual transaction patterns")
+        
+        if risk_level == 'HIGH':
+            recommendations.append("Consider implementing additional security measures")
+        
+        return recommendations
+
+    @action(detail=True, methods=['post'])
+    def freeze_wallet(self, request, pk=None):
+        """Freeze wallet for security"""
+        wallet = self.get_object()
+        
+        if wallet.status == 'frozen':
+            return Response(
+                {'error': 'Wallet is already frozen'}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        wallet.status = 'frozen'
+        wallet.save()
+        
+        # Log the freeze action
+        EnhancedWalletTransaction.objects.create(
+            wallet=wallet,
+            type='system',
+            amount=0,
+            description='Wallet frozen for security',
+            status='completed',
+            reference=f'FREEZE_{timezone.now().strftime("%Y%m%d_%H%M%S")}'
+        )
+        
+        return Response({
+            'message': 'Wallet frozen successfully',
+            'wallet_id': wallet.id,
+            'status': wallet.status
+        })
+
+    @action(detail=True, methods=['post'])
+    def unfreeze_wallet(self, request, pk=None):
+        """Unfreeze wallet"""
+        wallet = self.get_object()
+        
+        if wallet.status != 'frozen':
+            return Response(
+                {'error': 'Wallet is not frozen'}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        wallet.status = 'active'
+        wallet.save()
+        
+        # Log the unfreeze action
+        EnhancedWalletTransaction.objects.create(
+            wallet=wallet,
+            type='system',
+            amount=0,
+            description='Wallet unfrozen',
+            status='completed',
+            reference=f'UNFREEZE_{timezone.now().strftime("%Y%m%d_%H%M%S")}'
+        )
+        
+        return Response({
+            'message': 'Wallet unfrozen successfully',
+            'wallet_id': wallet.id,
+            'status': wallet.status
+        })
+
 
 class EnhancedWalletTransactionViewSet(viewsets.ModelViewSet):
     """ViewSet for managing enhanced wallet transactions matching TypeScript interface"""

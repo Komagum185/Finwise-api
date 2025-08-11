@@ -360,3 +360,29 @@ class OTPVerification(models.Model):
             otp_code=otp_code,
             expires_at=expires_at
         )
+
+
+class PasswordResetToken(models.Model):
+    """Model for storing password reset tokens"""
+    user = models.ForeignKey(CustomUser, on_delete=models.CASCADE, related_name='password_reset_tokens')
+    token = models.CharField(max_length=255)
+    created_at = models.DateTimeField(auto_now_add=True)
+    expires_at = models.DateTimeField()
+    is_used = models.BooleanField(default=False)
+    
+    class Meta:
+        verbose_name = "Password Reset Token"
+        verbose_name_plural = "Password Reset Tokens"
+    
+    def __str__(self):
+        return f"Password reset token for {self.user.username}"
+    
+    @property
+    def is_expired(self):
+        """Check if token has expired"""
+        return timezone.now() > self.expires_at
+    
+    def mark_used(self):
+        """Mark token as used"""
+        self.is_used = True
+        self.save()

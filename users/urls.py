@@ -6,7 +6,8 @@ from .views import (
     ApproveRegistrationView, RejectRegistrationView, VerifyOTPView,
     ResendOTPView, RegisterWithApprovalView, EnhancedRegistrationView,
     RegistrationProgressView, RegistrationStatusView, UserOnboardingView,
-    RegistrationAnalyticsView
+    RegistrationAnalyticsView, PasswordResetRequestView, PasswordResetConfirmView,
+    EmailVerificationView, EmailVerificationConfirmView
 )
 
 urlpatterns = [
@@ -19,8 +20,19 @@ urlpatterns = [
     
     # Profile management
     path('profile/', UserProfileView.as_view(), name='profile'),
+    path('profile/upload-picture/', UserProfileView.as_view(), name='upload_profile_picture'),
+    path('profile/remove-picture/', UserProfileView.as_view(), name='remove_profile_picture'),
+    path('profile/onboarding-status/', UserProfileView.as_view(), name='onboarding_status'),
     path('change-password/', ChangePasswordView.as_view(), name='change_password'),
     path('stats/', user_stats, name='user_stats'),
+    
+    # Password management
+    path('password-reset/', PasswordResetRequestView.as_view(), name='password_reset_request'),
+    path('password-reset/confirm/', PasswordResetConfirmView.as_view(), name='password_reset_confirm'),
+    
+    # Email verification
+    path('email-verify/', EmailVerificationView.as_view(), name='email_verification'),
+    path('email-verify/confirm/', EmailVerificationConfirmView.as_view(), name='email_verification_confirm'),
     
     # Pending registrations (Admin only)
     path('pending-registrations/', PendingRegistrationsView.as_view(), name='pending_registrations'),

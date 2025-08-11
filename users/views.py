@@ -10,12 +10,14 @@ from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError
 from django.db import models, transaction
 from django.utils import timezone
+from rest_framework.decorators import action
 
 from .models import CustomUser, PendingRegistration, OTPVerification
 from .serializers import (
     UserSerializer, PendingRegistrationSerializer, PendingRegistrationCreateSerializer,
     OTPVerificationSerializer, VerifyOTPSerializer, ResendOTPSerializer,
-    CustomUserSerializer
+    CustomUserSerializer, EnhancedRegistrationSerializer, RegistrationProgressSerializer,
+    RegistrationStatusSerializer, UserOnboardingSerializer
 )
 from .utils import send_otp_email, send_otp_sms, send_registration_approval_email
 
@@ -162,7 +164,7 @@ class UserProfileView(APIView):
     
     def get(self, request):
         """Get user profile"""
-        serializer = UserSerializer(request.user)
+        serializer = CustomUserSerializer(request.user, context={'request': request})
         return Response(serializer.data)
     
     def put(self, request):
@@ -173,12 +175,19 @@ class UserProfileView(APIView):
         # Update allowed fields
         allowed_fields = [
             'first_name', 'last_name', 'email', 'phone_number', 
-            'date_of_birth', 'default_currency', 'monthly_income'
+            'date_of_birth', 'default_currency', 'monthly_income',
+            'address', 'city', 'country', 'postal_code',
+            'employment_status', 'employer_name', 'job_title',
+            'preferred_banking_hours', 'communication_preference'
         ]
         
         for field in allowed_fields:
             if field in data:
                 setattr(user, field, data[field])
+        
+        # Handle profile picture upload
+        if 'profile_picture' in request.FILES:
+            user.profile_picture = request.FILES['profile_picture']
         
         # Validate email uniqueness if changed
         if 'email' in data and data['email'] != user.email:
@@ -187,14 +196,127 @@ class UserProfileView(APIView):
                     {'error': 'Email already exists'}, 
                     status=status.HTTP_400_BAD_REQUEST
                 )
+            # Mark email as unverified if changed
+            user.is_verified = False
         
         user.save()
         
-        serializer = UserSerializer(user)
+        serializer = CustomUserSerializer(user, context={'request': request})
         return Response({
             'message': 'Profile updated successfully',
             'user': serializer.data
         })
+
+    @action(detail=False, methods=['post'])
+    def upload_profile_picture(self, request):
+        """Upload profile picture"""
+        user = request.user
+        
+        if 'profile_picture' not in request.FILES:
+            return Response(
+                {'error': 'Profile picture is required'}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        profile_picture = request.FILES['profile_picture']
+        
+        # Validate file type and size
+        if not profile_picture.content_type.startswith('image/'):
+            return Response(
+                {'error': 'File must be an image'}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        if profile_picture.size > 5 * 1024 * 1024:  # 5MB limit
+            return Response(
+                {'error': 'File size must be less than 5MB'}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Delete old profile picture if exists
+        if user.profile_picture:
+            user.profile_picture.delete(save=False)
+        
+        user.profile_picture = profile_picture
+        user.save()
+        
+        serializer = CustomUserSerializer(user, context={'request': request})
+        return Response({
+            'message': 'Profile picture uploaded successfully',
+            'user': serializer.data
+        })
+
+    @action(detail=False, methods=['post'])
+    def remove_profile_picture(self, request):
+        """Remove profile picture"""
+        user = request.user
+        
+        if not user.profile_picture:
+            return Response(
+                {'error': 'No profile picture to remove'}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        user.profile_picture.delete(save=False)
+        user.profile_picture = None
+        user.save()
+        
+        serializer = CustomUserSerializer(user, context={'request': request})
+        return Response({
+            'message': 'Profile picture removed successfully',
+            'user': serializer.data
+        })
+
+    @action(detail=False, methods=['get'])
+    def onboarding_status(self, request):
+        """Get user onboarding completion status"""
+        user = request.user
+        
+        onboarding_steps = {
+            'profile_complete': bool(user.first_name and user.last_name and user.phone_number),
+            'financial_setup': bool(user.default_currency and user.monthly_income),
+            'address_complete': bool(user.address and user.city and user.country),
+            'employment_info': bool(user.employment_status),
+            'preferences_set': bool(user.preferred_banking_hours and user.communication_preference),
+            'terms_accepted': bool(user.terms_accepted_at)
+        }
+        
+        completed_steps = sum(onboarding_steps.values())
+        total_steps = len(onboarding_steps)
+        completion_percentage = (completed_steps / total_steps) * 100
+        
+        return Response({
+            'onboarding_complete': user.onboarding_completed,
+            'completion_percentage': completion_percentage,
+            'completed_steps': completed_steps,
+            'total_steps': total_steps,
+            'step_details': onboarding_steps,
+            'next_steps': self._get_next_onboarding_steps(onboarding_steps)
+        })
+
+    def _get_next_onboarding_steps(self, onboarding_steps):
+        """Get next steps for onboarding completion"""
+        next_steps = []
+        
+        if not onboarding_steps['profile_complete']:
+            next_steps.append('Complete your basic profile information')
+        
+        if not onboarding_steps['financial_setup']:
+            next_steps.append('Set your financial preferences')
+        
+        if not onboarding_steps['address_complete']:
+            next_steps.append('Add your address information')
+        
+        if not onboarding_steps['employment_info']:
+            next_steps.append('Provide employment information')
+        
+        if not onboarding_steps['preferences_set']:
+            next_steps.append('Set your banking preferences')
+        
+        if not onboarding_steps['terms_accepted']:
+            next_steps.append('Accept terms and conditions')
+        
+        return next_steps
 
 
 class ChangePasswordView(APIView):
@@ -843,3 +965,199 @@ class RegistrationAnalyticsView(APIView):
         }
         
         return Response(analytics)
+
+
+class PasswordResetRequestView(APIView):
+    """Request password reset via email"""
+    permission_classes = [permissions.AllowAny]
+    
+    def post(self, request):
+        """Send password reset email"""
+        email = request.data.get('email')
+        
+        if not email:
+            return Response(
+                {'error': 'Email is required'}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        try:
+            user = CustomUser.objects.get(email=email)
+        except CustomUser.DoesNotExist:
+            # Don't reveal if email exists or not for security
+            return Response({
+                'message': 'If an account with this email exists, a password reset link has been sent.'
+            })
+        
+        # Generate password reset token
+        from django.contrib.auth.tokens import default_token_generator
+        from django.utils.http import urlsafe_base64_encode
+        from django.utils.encoding import force_bytes
+        
+        token = default_token_generator.make_token(user)
+        uid = urlsafe_base64_encode(force_bytes(user.pk))
+        
+        # Create password reset record
+        from .models import PasswordResetToken
+        reset_token, created = PasswordResetToken.objects.get_or_create(
+            user=user,
+            defaults={'token': token, 'expires_at': timezone.now() + timedelta(hours=24)}
+        )
+        
+        if not created:
+            reset_token.token = token
+            reset_token.expires_at = timezone.now() + timedelta(hours=24)
+            reset_token.save()
+        
+        # Send password reset email
+        try:
+            from .utils import send_password_reset_email
+            send_password_reset_email(user, token, uid)
+        except Exception as e:
+            return Response(
+                {'error': 'Failed to send password reset email'}, 
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+        
+        return Response({
+            'message': 'Password reset email sent successfully'
+        })
+
+
+class PasswordResetConfirmView(APIView):
+    """Confirm password reset with token"""
+    permission_classes = [permissions.AllowAny]
+    
+    def post(self, request):
+        """Reset password with token"""
+        uidb64 = request.data.get('uid')
+        token = request.data.get('token')
+        new_password = request.data.get('new_password')
+        
+        if not all([uidb64, token, new_password]):
+            return Response(
+                {'error': 'All fields are required'}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        try:
+            from django.utils.http import urlsafe_base64_decode
+            from django.contrib.auth.tokens import default_token_generator
+            
+            uid = urlsafe_base64_decode(uidb64).decode()
+            user = CustomUser.objects.get(pk=uid)
+            
+            # Verify token
+            if not default_token_generator.check_token(user, token):
+                return Response(
+                    {'error': 'Invalid or expired token'}, 
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # Validate new password
+            from django.contrib.auth.password_validation import validate_password
+            validate_password(new_password)
+            
+            # Update password
+            user.set_password(new_password)
+            user.save()
+            
+            # Invalidate all password reset tokens
+            from .models import PasswordResetToken
+            PasswordResetToken.objects.filter(user=user).delete()
+            
+            return Response({
+                'message': 'Password reset successfully'
+            })
+            
+        except (TypeError, ValueError, OverflowError, CustomUser.DoesNotExist):
+            return Response(
+                {'error': 'Invalid reset link'}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        except ValidationError as e:
+            return Response(
+                {'error': e.messages[0]}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+
+class EmailVerificationView(APIView):
+    """Email verification view"""
+    permission_classes = [permissions.IsAuthenticated]
+    
+    def post(self, request):
+        """Send email verification"""
+        user = request.user
+        
+        if user.is_verified:
+            return Response(
+                {'error': 'Email is already verified'}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Generate verification token
+        from django.contrib.auth.tokens import default_token_generator
+        from django.utils.http import urlsafe_base64_encode
+        from django.utils.encoding import force_bytes
+        
+        token = default_token_generator.make_token(user)
+        uid = urlsafe_base64_encode(force_bytes(user.pk))
+        
+        # Send verification email
+        try:
+            from .utils import send_email_verification
+            send_email_verification(user, token, uid)
+        except Exception as e:
+            return Response(
+                {'error': 'Failed to send verification email'}, 
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+        
+        return Response({
+            'message': 'Verification email sent successfully'
+        })
+
+
+class EmailVerificationConfirmView(APIView):
+    """Confirm email verification with token"""
+    permission_classes = [permissions.AllowAny]
+    
+    def post(self, request):
+        """Verify email with token"""
+        uidb64 = request.data.get('uid')
+        token = request.data.get('token')
+        
+        if not all([uidb64, token]):
+            return Response(
+                {'error': 'All fields are required'}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        try:
+            from django.utils.http import urlsafe_base64_decode
+            from django.contrib.auth.tokens import default_token_generator
+            
+            uid = urlsafe_base64_decode(uidb64).decode()
+            user = CustomUser.objects.get(pk=uid)
+            
+            # Verify token
+            if not default_token_generator.check_token(user, token):
+                return Response(
+                    {'error': 'Invalid or expired token'}, 
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # Mark email as verified
+            user.is_verified = True
+            user.save()
+            
+            return Response({
+                'message': 'Email verified successfully'
+            })
+            
+        except (TypeError, ValueError, OverflowError, CustomUser.DoesNotExist):
+            return Response(
+                {'error': 'Invalid verification link'}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )

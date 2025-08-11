@@ -61,6 +61,159 @@ class MSEViewSet(viewsets.ModelViewSet):
         serializer = self.get_serializer(mses, many=True)
         return Response(serializer.data)
 
+    @action(detail=False, methods=['get'])
+    def business_analytics(self, request):
+        """Get comprehensive business analytics for all MSEs"""
+        from django.db.models import Count, Avg, Sum
+        from django.utils import timezone
+        from datetime import timedelta
+        
+        # Time-based filtering
+        period = request.query_params.get('period', '30')  # days
+        end_date = timezone.now().date()
+        start_date = end_date - timedelta(days=int(period))
+        
+        # Basic counts
+        total_mses = MSE.objects.count()
+        active_mses = MSE.objects.filter(status='active').count()
+        new_mses = MSE.objects.filter(created_at__date__gte=start_date).count()
+        
+        # Business type distribution
+        business_type_distribution = MSE.objects.values('business_type').annotate(
+            count=Count('id')
+        ).order_by('-count')
+        
+        # MSE type distribution
+        mse_type_distribution = MSE.objects.values('mse_type').annotate(
+            count=Count('id')
+        ).order_by('-count')
+        
+        # Growth trends
+        growth_data = []
+        for i in range(7):  # Last 7 periods
+            period_start = end_date - timedelta(days=(i+1)*int(period)//7)
+            period_end = end_date - timedelta(days=i*int(period)//7)
+            period_count = MSE.objects.filter(
+                created_at__date__gte=period_start,
+                created_at__date__lt=period_end
+            ).count()
+            growth_data.append({
+                'period': period_start.strftime('%Y-%m-%d'),
+                'new_mses': period_count
+            })
+        
+        # Performance metrics
+        performance_metrics = {
+            'total_mses': total_mses,
+            'active_mses': active_mses,
+            'new_mses': new_mses,
+            'activation_rate': (active_mses / total_mses * 100) if total_mses > 0 else 0,
+            'growth_rate': (new_mses / total_mses * 100) if total_mses > 0 else 0,
+            'business_type_distribution': list(business_type_distribution),
+            'mse_type_distribution': list(mse_type_distribution),
+            'growth_trends': list(reversed(growth_data))
+        }
+        
+        return Response(performance_metrics)
+
+    @action(detail=True, methods=['get'])
+    def performance_metrics(self, request, pk=None):
+        """Get detailed performance metrics for a specific MSE"""
+        mse = self.get_object()
+        
+        # Wallet performance
+        wallets = Wallet.objects.filter(mse=mse)
+        total_balance = sum(wallet.balance for wallet in wallets)
+        transaction_count = sum(wallet.transaction_count for wallet in wallets)
+        
+        # Business metrics based on MSE type
+        business_metrics = {}
+        
+        if hasattr(mse, 'inputmse'):
+            input_mse = mse.inputmse
+            business_metrics.update({
+                'supplier_network_size': input_mse.supplier_network_size,
+                'average_order_value': input_mse.average_order_value,
+                'input_costs_tracking': input_mse.input_costs_tracking,
+                'quality_standards': input_mse.quality_standards
+            })
+        
+        if hasattr(mse, 'productionmse'):
+            production_mse = mse.productionmse
+            business_metrics.update({
+                'daily_production_target': production_mse.daily_production_target,
+                'production_process': production_mse.production_process,
+                'quality_control': production_mse.quality_control
+            })
+        
+        if hasattr(mse, 'outputmse'):
+            output_mse = mse.outputmse
+            business_metrics.update({
+                'customer_network_size': output_mse.customer_network_size,
+                'average_sale_value': output_mse.average_sale_value,
+                'market_reach': output_mse.market_reach
+            })
+        
+        return Response({
+            'mse_id': mse.id,
+            'mse_name': mse.name,
+            'mse_type': mse.mse_type,
+            'business_type': mse.business_type,
+            'status': mse.status,
+            'financial_performance': {
+                'total_balance': total_balance,
+                'transaction_count': transaction_count,
+                'wallet_count': wallets.count()
+            },
+            'business_metrics': business_metrics,
+            'registration_date': mse.created_at,
+            'last_updated': mse.updated_at
+        })
+
+    @action(detail=False, methods=['get'])
+    def value_chain_analysis(self, request):
+        """Analyze value chain relationships between MSEs"""
+        from django.db.models import Q
+        
+        # Get all MSEs with their relationships
+        input_mses = InputMSE.objects.select_related('mse').all()
+        production_mses = ProductionMSE.objects.select_related('mse').all()
+        output_mses = OutputMSE.objects.select_related('mse').all()
+        
+        # Value chain mapping
+        value_chain = {
+            'input_suppliers': len(input_mses),
+            'production_units': len(production_mses),
+            'output_distributors': len(output_mses),
+            'total_value_chain_participants': len(input_mses) + len(production_mses) + len(output_mses)
+        }
+        
+        # Cross-chain relationships
+        cross_chain_relationships = []
+        
+        # Find MSEs that participate in multiple chain stages
+        for mse in MSE.objects.all():
+            chain_participation = []
+            if hasattr(mse, 'inputmse'):
+                chain_participation.append('Input')
+            if hasattr(mse, 'productionmse'):
+                chain_participation.append('Production')
+            if hasattr(mse, 'outputmse'):
+                chain_participation.append('Output')
+            
+            if len(chain_participation) > 1:
+                cross_chain_relationships.append({
+                    'mse_name': mse.name,
+                    'mse_type': mse.mse_type,
+                    'chain_stages': chain_participation,
+                    'participation_count': len(chain_participation)
+                })
+        
+        value_chain['cross_chain_relationships'] = cross_chain_relationships
+        value_chain['cross_chain_participants'] = len(cross_chain_relationships)
+        
+        return Response(value_chain)
+
 
 class InputMSEViewSet(viewsets.ModelViewSet):
     """ViewSet for InputMSE model"""
