@@ -54,6 +54,7 @@ INSTALLED_APPS = [
     'dashboard',
     'shared',
     'wallet',
+    'notifications',
 ]
 
 MIDDLEWARE = [
@@ -171,12 +172,13 @@ REST_FRAMEWORK = {
         'rest_framework.filters.OrderingFilter',
     ],
     'DEFAULT_THROTTLE_CLASSES': [
-        'rest_framework.throttling.AnonRateThrottle',
-        'rest_framework.throttling.UserRateThrottle'
+        'users.throttling.APIRateThrottle',
+        'users.throttling.BurstRateThrottle',
     ],
     'DEFAULT_THROTTLE_RATES': {
-        'anon': '1000/hour',  # Increased for development
-        'user': '10000/hour'  # Increased for development
+        'api': '1000/hour',      # General API usage
+        'burst': '100/minute',   # Short-term bursts
+        'login': '20/minute',    # Login attempts
     }
 }
 

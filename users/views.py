@@ -11,6 +11,8 @@ from django.core.exceptions import ValidationError
 from django.db import models, transaction
 from django.utils import timezone
 from rest_framework.decorators import action
+from rest_framework.throttling import UserRateThrottle
+from django.core.cache import cache
 
 from .models import CustomUser, PendingRegistration, OTPVerification
 from .serializers import (
@@ -20,6 +22,7 @@ from .serializers import (
     RegistrationStatusSerializer, UserOnboardingSerializer
 )
 from .utils import send_otp_email, send_otp_sms, send_registration_approval_email
+from .throttling import LoginRateThrottle
 
 
 class RegisterView(APIView):
@@ -98,6 +101,14 @@ class RegisterView(APIView):
 class LoginView(APIView):
     """User login view"""
     permission_classes = [permissions.AllowAny]
+    throttle_classes = [LoginRateThrottle]
+    
+    def get_ident(self, request):
+        """Get client identifier for rate limiting"""
+        xff = request.META.get('HTTP_X_FORWARDED_FOR')
+        if xff:
+            return xff.split(',')[0].strip()
+        return request.META.get('REMOTE_ADDR', 'unknown')
     
     def post(self, request):
         """Authenticate user and return tokens"""
@@ -114,19 +125,44 @@ class LoginView(APIView):
         user = authenticate(username=username, password=password)
         
         if not user:
-            return Response(
-                {'error': 'Invalid credentials'}, 
-                status=status.HTTP_401_UNAUTHORIZED
-            )
+            # Increment failure counter for rate limiting
+            self.throttle_failure(request, self)
+            
+            # Get current attempt count for user guidance
+            cache_key = f"login_attempts:{self.get_ident(request)}"
+            attempts = cache.get(cache_key, 0)
+            
+            if attempts >= 10:
+                return Response({
+                    'error': 'Too many failed login attempts. Please wait 5 minutes before trying again.',
+                    'wait_time': '5 minutes',
+                    'attempts': attempts
+                }, status=status.HTTP_429_TOO_MANY_REQUESTS)
+            elif attempts >= 5:
+                return Response({
+                    'error': 'Multiple failed login attempts. Please wait 2 minutes before trying again.',
+                    'wait_time': '2 minutes',
+                    'attempts': attempts
+                }, status=status.HTTP_429_TOO_MANY_REQUESTS)
+            else:
+                return Response({
+                    'error': 'Invalid credentials',
+                    'attempts': attempts,
+                    'remaining_attempts': 20 - attempts
+                }, status=status.HTTP_401_UNAUTHORIZED)
         
+        # Check if user is active
         if not user.is_active:
             return Response(
-                {'error': 'Account is disabled'}, 
+                {'error': 'Account is deactivated'}, 
                 status=status.HTTP_401_UNAUTHORIZED
             )
         
         # Generate tokens
         refresh = RefreshToken.for_user(user)
+        
+        # Reset rate limiting on successful login
+        self.throttle_success(request, self)
         
         return Response({
             'message': 'Login successful',
@@ -1001,12 +1037,12 @@ class PasswordResetRequestView(APIView):
         from .models import PasswordResetToken
         reset_token, created = PasswordResetToken.objects.get_or_create(
             user=user,
-            defaults={'token': token, 'expires_at': timezone.now() + timedelta(hours=24)}
+            defaults={'token': token, 'expires_at': timezone.now() + timezone.timedelta(hours=24)}
         )
         
         if not created:
             reset_token.token = token
-            reset_token.expires_at = timezone.now() + timedelta(hours=24)
+            reset_token.expires_at = timezone.now() + timezone.timedelta(hours=24)
             reset_token.save()
         
         # Send password reset email
