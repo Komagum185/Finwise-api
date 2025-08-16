@@ -4,7 +4,7 @@ from django.core.exceptions import ValidationError
 from django.db import transaction
 from decimal import Decimal
 from .models import (
-    Category, Budget, Goal, Transaction, UserProfile, RecurringTransaction
+    Category, Budget, Goal, Transaction, UserProfile, RecurringTransaction, BusinessHealth
 )
 
 User = get_user_model()
@@ -131,15 +131,22 @@ class TransactionSerializer(serializers.ModelSerializer):
     """Enhanced transaction serializer with validation"""
     category_name = serializers.CharField(source='category.name', read_only=True)
     user_name = serializers.CharField(source='user.username', read_only=True)
+    payment_method_display = serializers.CharField(source='get_payment_method_display', read_only=True)
+    transaction_type_display = serializers.CharField(source='get_transaction_type_display', read_only=True)
+    status_display = serializers.CharField(source='get_status_display', read_only=True)
     
     class Meta:
         model = Transaction
         fields = [
             'id', 'user', 'user_name', 'amount', 'description', 'transaction_type',
-            'category', 'category_name', 'date', 'status', 'notes', 'receipt_image',
-            'location', 'tags', 'created_at', 'updated_at'
+            'transaction_type_display', 'category', 'category_name', 'date', 
+            'payment_method', 'payment_method_display', 'status', 'status_display',
+            'reference', 'notes', 'receipt_image', 'location', 'tags', 
+            'created_at', 'updated_at'
         ]
-        read_only_fields = ['id', 'user', 'user_name', 'category_name', 'created_at', 'updated_at']
+        read_only_fields = ['id', 'user', 'user_name', 'category_name', 
+                           'transaction_type_display', 'payment_method_display', 
+                           'status_display', 'created_at', 'updated_at']
     
     def validate(self, data):
         """Validate transaction data"""
@@ -160,6 +167,33 @@ class TransactionSerializer(serializers.ModelSerializer):
                 )
         
         return data
+    
+    def create(self, validated_data):
+        validated_data['user'] = self.context['request'].user
+        return super().create(validated_data)
+
+
+class BusinessHealthSerializer(serializers.ModelSerializer):
+    """Business health metrics serializer"""
+    user_name = serializers.CharField(source='user.username', read_only=True)
+    health_status = serializers.SerializerMethodField()
+    recommendations_summary = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = BusinessHealth
+        fields = [
+            'id', 'user', 'user_name', 'financial_health', 'inventory_efficiency',
+            'customer_satisfaction', 'overall_score', 'recommendations', 'health_status',
+            'recommendations_summary', 'calculated_at'
+        ]
+        read_only_fields = ['id', 'user', 'user_name', 'overall_score', 'health_status',
+                           'recommendations_summary', 'calculated_at']
+    
+    def get_health_status(self, obj):
+        return obj.get_health_status()
+    
+    def get_recommendations_summary(self, obj):
+        return obj.get_recommendations_summary()
     
     def create(self, validated_data):
         validated_data['user'] = self.context['request'].user

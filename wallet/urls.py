@@ -18,6 +18,11 @@ router.register(r'transactions', views.TransactionViewSet)
 router.register(r'budgets', views.BudgetViewSet)
 router.register(r'goals', views.GoalViewSet)
 
+# Payment Transaction endpoints
+router.register(r'payment-transactions', views.PaymentTransactionViewSet, basename='payment-transaction')
+router.register(r'bulk-payments', views.BulkPaymentViewSet, basename='bulk-payment')
+router.register(r'bulk-payment-recipients', views.BulkPaymentRecipientViewSet, basename='bulk-payment-recipient')
+
 app_name = 'wallet'
 
 urlpatterns = [

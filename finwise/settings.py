@@ -26,7 +26,7 @@ SECRET_KEY = config('SECRET_KEY', default='django-insecure-6+m*e6i7f&x9cuc1+j34%
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = config('DEBUG', default=True, cast=bool)
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = ['localhost', '127.0.0.1', 'testserver']
 
 
 # Application definition
@@ -55,6 +55,9 @@ INSTALLED_APPS = [
     'shared',
     'wallet',
     'notifications',
+    'loans',
+    'kyc',
+    'customers',
 ]
 
 MIDDLEWARE = [
@@ -171,16 +174,28 @@ REST_FRAMEWORK = {
         'rest_framework.filters.SearchFilter',
         'rest_framework.filters.OrderingFilter',
     ],
-    'DEFAULT_THROTTLE_CLASSES': [
-        'users.throttling.APIRateThrottle',
-        'users.throttling.BurstRateThrottle',
-    ],
-    'DEFAULT_THROTTLE_RATES': {
-        'api': '1000/hour',      # General API usage
-        'burst': '100/minute',   # Short-term bursts
-        'login': '20/minute',    # Login attempts
-    }
 }
+
+# Apply rate limiting only in production
+if not DEBUG:
+    # Production: Enable smart rate limiting for security
+    REST_FRAMEWORK.update({
+        'DEFAULT_THROTTLE_CLASSES': [
+            'users.throttling.APIRateThrottle',
+            'users.throttling.BurstRateThrottle',
+        ],
+        'DEFAULT_THROTTLE_RATES': {
+            'api': '1000/hour',      # General API usage
+            'burst': '100/minute',   # Short-term bursts
+            'login': '20/minute',    # Login attempts
+        }
+    })
+else:
+    # Development: No rate limiting for easier testing and development
+    REST_FRAMEWORK.update({
+        'DEFAULT_THROTTLE_CLASSES': [],
+        'DEFAULT_THROTTLE_RATES': {}
+    })
 
 # JWT Settings
 from datetime import timedelta
@@ -213,6 +228,8 @@ CORS_ALLOWED_ORIGINS = [
     'http://127.0.0.1:3000',
     'http://localhost:3001',  # Add your React frontend port
     'http://127.0.0.1:3001',
+    'http://localhost:3002',  # Add your React frontend port
+    'http://127.0.0.1:3002',
     'http://localhost:5173',
     'http://127.0.0.1:5173',
     'http://localhost:5174',
@@ -243,4 +260,6 @@ CORS_ALLOW_HEADERS = [
     'user-agent',
     'x-csrftoken',
     'x-requested-with',
+    'cache-control',
+    'pragma',
 ]

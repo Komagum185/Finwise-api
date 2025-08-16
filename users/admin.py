@@ -6,21 +6,22 @@ from .models import CustomUser, PendingRegistration, OTPVerification, User, Pend
 @admin.register(CustomUser)
 class CustomUserAdmin(UserAdmin):
     """Admin interface for CustomUser model"""
-    list_display = ['username', 'email', 'first_name', 'last_name', 'is_verified', 'is_active', 'date_joined']
-    list_filter = ['is_verified', 'is_active', 'date_joined', 'employment_status']
-    search_fields = ['username', 'email', 'first_name', 'last_name']
+    list_display = ['username', 'email', 'first_name', 'last_name', 'role', 'status', 'is_verified', 'is_active', 'date_joined']
+    list_filter = ['role', 'status', 'is_verified', 'is_active', 'date_joined', 'employment_status']
+    search_fields = ['username', 'email', 'first_name', 'last_name', 'business_type', 'business_location']
     ordering = ['-date_joined']
     
     fieldsets = (
         (None, {'fields': ('username', 'password')}),
         ('Personal info', {'fields': ('first_name', 'last_name', 'email', 'phone_number', 'date_of_birth')}),
+        ('Business Information', {'fields': ('role', 'business_type', 'business_location', 'business_description')}),
         ('Profile', {'fields': ('profile_picture', 'address', 'city', 'country', 'postal_code')}),
         ('Employment', {'fields': ('employment_status', 'employer_name', 'job_title')}),
         ('Financial', {'fields': ('default_currency', 'monthly_income')}),
         ('Preferences', {'fields': ('preferred_banking_hours', 'communication_preference')}),
         ('Permissions', {'fields': ('is_active', 'is_staff', 'is_superuser', 'groups', 'user_permissions')}),
-        ('Important dates', {'fields': ('last_login', 'date_joined')}),
-        ('Status', {'fields': ('is_verified', 'onboarding_completed', 'onboarding_completed_at')}),
+        ('Important dates', {'fields': ('last_login', 'date_joined', 'registration_date')}),
+        ('Status', {'fields': ('status', 'is_verified', 'onboarding_completed', 'onboarding_completed_at')}),
         ('Terms', {'fields': ('terms_accepted_at', 'marketing_consent')}),
     )
     

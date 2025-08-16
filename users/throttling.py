@@ -54,12 +54,11 @@ class LoginRateThrottle(SimpleRateThrottle):
         
         return super().allow_request(request, view)
     
-    def throttle_success(self, request, view):
-        """Reset rate limiting on successful login"""
-        cache_key = self.get_cache_key(request, view)
-        if cache_key:
-            cache.delete(cache_key)
-            cache.delete(f"{cache_key}:last_attempt")
+    def throttle_success(self):
+        """Reset rate limiting on successful login - called by DRF"""
+        # This method is called by DRF without arguments
+        # We'll handle the reset in the view instead
+        pass
     
     def throttle_failure(self, request, view):
         """Increment failure counter on failed login"""
@@ -68,6 +67,13 @@ class LoginRateThrottle(SimpleRateThrottle):
             attempts = cache.get(cache_key, 0) + 1
             cache.set(cache_key, attempts, 300)  # 5 minutes
             cache.set(f"{cache_key}:last_attempt", timezone.now(), 300)
+    
+    def reset_login_attempts(self, request, view):
+        """Custom method to reset rate limiting on successful login"""
+        cache_key = self.get_cache_key(request, view)
+        if cache_key:
+            cache.delete(cache_key)
+            cache.delete(f"{cache_key}:last_attempt")
 
 
 class APIRateThrottle(SimpleRateThrottle):
@@ -98,7 +104,7 @@ class BurstRateThrottle(SimpleRateThrottle):
     def get_cache_key(self, request, view):
         if request.user.is_authenticated:
             return f"burst_user:{request.user.id}"
-        return f"burst_anon:{self.get_ident(request)}"
+        return f"api_anon:{self.get_ident(request)}"
     
     def get_rate(self):
         """Allow bursts but limit sustained usage"""

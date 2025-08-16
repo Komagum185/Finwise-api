@@ -155,6 +155,13 @@ class Transaction(models.Model):
         ('transfer', 'Transfer'),
     ]
     
+    PAYMENT_METHODS = [
+        ('cash', 'Cash'),
+        ('mobile_money', 'Mobile Money'),
+        ('bank', 'Bank'),
+        ('card', 'Card'),
+    ]
+    
     STATUS_CHOICES = [
         ('pending', 'Pending'),
         ('completed', 'Completed'),
@@ -163,12 +170,14 @@ class Transaction(models.Model):
     
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='transactions')
-    amount = models.DecimalField(max_digits=10, decimal_places=2, validators=[MinValueValidator(Decimal('0.01'))])
+    amount = models.DecimalField(max_digits=15, decimal_places=2, validators=[MinValueValidator(Decimal('0.01'))])
     description = models.CharField(max_length=255)
     transaction_type = models.CharField(max_length=10, choices=TRANSACTION_TYPES)
     category = models.ForeignKey(Category, on_delete=models.PROTECT, related_name='transactions')
     date = models.DateField()
+    payment_method = models.CharField(max_length=20, choices=PAYMENT_METHODS, default='cash')
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='completed')
+    reference = models.CharField(max_length=100, blank=True)
     notes = models.TextField(blank=True)
     receipt_image = models.ImageField(upload_to='receipts/', blank=True, null=True)
     location = models.CharField(max_length=200, blank=True)
@@ -196,6 +205,65 @@ class Transaction(models.Model):
     def save(self, *args, **kwargs):
         self.clean()
         super().save(*args, **kwargs)
+
+
+class BusinessHealth(models.Model):
+    """Business health metrics and analytics"""
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='business_health')
+    financial_health = models.DecimalField(max_digits=5, decimal_places=2, null=True, blank=True)
+    inventory_efficiency = models.DecimalField(max_digits=5, decimal_places=2, null=True, blank=True)
+    customer_satisfaction = models.DecimalField(max_digits=5, decimal_places=2, null=True, blank=True)
+    overall_score = models.DecimalField(max_digits=5, decimal_places=2, null=True, blank=True)
+    recommendations = models.JSONField(default=list, blank=True)
+    calculated_at = models.DateTimeField(auto_now_add=True)
+    
+    class Meta:
+        ordering = ['-calculated_at']
+        verbose_name = "Business Health"
+        verbose_name_plural = "Business Health Metrics"
+    
+    def __str__(self):
+        return f"{self.user.username} - Business Health - {self.calculated_at.strftime('%Y-%m-%d')}"
+    
+    def calculate_overall_score(self):
+        """Calculate overall business health score"""
+        scores = []
+        if self.financial_health is not None:
+            scores.append(self.financial_health)
+        if self.inventory_efficiency is not None:
+            scores.append(self.inventory_efficiency)
+        if self.customer_satisfaction is not None:
+            scores.append(self.customer_satisfaction)
+        
+        if scores:
+            self.overall_score = sum(scores) / len(scores)
+        else:
+            self.overall_score = None
+    
+    def save(self, *args, **kwargs):
+        self.calculate_overall_score()
+        super().save(*args, **kwargs)
+    
+    def get_health_status(self):
+        """Get health status based on overall score"""
+        if self.overall_score is None:
+            return 'unknown'
+        elif self.overall_score >= 80:
+            return 'excellent'
+        elif self.overall_score >= 60:
+            return 'good'
+        elif self.overall_score >= 40:
+            return 'fair'
+        else:
+            return 'poor'
+    
+    def get_recommendations_summary(self):
+        """Get a summary of recommendations"""
+        if not self.recommendations:
+            return "No specific recommendations at this time."
+        
+        return f"{len(self.recommendations)} recommendations available"
 
 
 class UserProfile(models.Model):

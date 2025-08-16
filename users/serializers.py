@@ -54,15 +54,20 @@ class CustomUserSerializer(serializers.ModelSerializer):
     """User serializer with profile information"""
     full_name = serializers.ReadOnlyField()
     profile_picture_url = serializers.SerializerMethodField()
+    role_display = serializers.CharField(source='get_role_display', read_only=True)
+    status_display = serializers.CharField(source='get_status_display', read_only=True)
     
     class Meta:
         model = UserModel
         fields = [
             'id', 'username', 'email', 'first_name', 'last_name', 'full_name',
             'phone_number', 'date_of_birth', 'is_verified', 'profile_picture_url',
-            'default_currency', 'monthly_income', 'date_joined', 'last_login'
+            'default_currency', 'monthly_income', 'date_joined', 'last_login',
+            'role', 'role_display', 'business_type', 'business_location', 
+            'business_description', 'registration_date', 'status', 'status_display'
         ]
-        read_only_fields = ['id', 'date_joined', 'last_login', 'is_verified']
+        read_only_fields = ['id', 'date_joined', 'last_login', 'is_verified', 
+                           'role_display', 'status_display', 'registration_date']
     
     def get_profile_picture_url(self, obj):
         if obj.profile_picture:
@@ -82,7 +87,8 @@ class RegisterSerializer(serializers.ModelSerializer):
         fields = [
             'username', 'email', 'password', 'password_confirm',
             'first_name', 'last_name', 'phone_number', 'date_of_birth',
-            'default_currency', 'monthly_income'
+            'default_currency', 'monthly_income', 'role', 'business_type',
+            'business_location', 'business_description'
         ]
     
     def validate(self, attrs):

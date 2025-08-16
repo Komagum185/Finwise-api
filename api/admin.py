@@ -1,6 +1,6 @@
 from django.contrib import admin
 from .models import (
-    Category, Budget, Goal, Transaction, UserProfile, RecurringTransaction
+    Category, Budget, Goal, Transaction, UserProfile, RecurringTransaction, BusinessHealth
 )
 
 
@@ -32,9 +32,9 @@ class GoalAdmin(admin.ModelAdmin):
 
 @admin.register(Transaction)
 class TransactionAdmin(admin.ModelAdmin):
-    list_display = ['id', 'user', 'amount', 'description', 'transaction_type', 'category', 'date', 'status']
-    list_filter = ['transaction_type', 'category', 'status', 'date', 'user']
-    search_fields = ['description', 'notes', 'user__username', 'category__name']
+    list_display = ['id', 'user', 'amount', 'description', 'transaction_type', 'payment_method', 'category', 'date', 'status']
+    list_filter = ['transaction_type', 'payment_method', 'category', 'status', 'date', 'user']
+    search_fields = ['description', 'notes', 'reference', 'user__username', 'category__name']
     date_hierarchy = 'date'
     ordering = ['-date', '-created_at']
     readonly_fields = ['id', 'created_at', 'updated_at']
@@ -55,3 +55,15 @@ class RecurringTransactionAdmin(admin.ModelAdmin):
     search_fields = ['description', 'user__username']
     date_hierarchy = 'next_due_date'
     ordering = ['next_due_date']
+
+
+@admin.register(BusinessHealth)
+class BusinessHealthAdmin(admin.ModelAdmin):
+    list_display = ['user', 'financial_health', 'inventory_efficiency', 'customer_satisfaction', 'overall_score', 'calculated_at']
+    list_filter = ['calculated_at', 'user']
+    search_fields = ['user__username', 'user__email']
+    ordering = ['-calculated_at']
+    readonly_fields = ['id', 'overall_score', 'calculated_at']
+    
+    def get_queryset(self, request):
+        return super().get_queryset(request).select_related('user')

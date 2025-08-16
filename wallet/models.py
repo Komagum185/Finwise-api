@@ -5,6 +5,7 @@ from django.core.exceptions import ValidationError
 from decimal import Decimal
 from django.db.models import Sum, Count
 from django.utils import timezone
+import uuid
 
 # Import wallet models from mses app
 from mses.models import Wallet as MSEWallet, WalletTransaction as MSEWalletTransaction
@@ -282,6 +283,13 @@ class Transaction(models.Model):
         ('investment', 'Investment'),
     ]
     
+    PAYMENT_METHODS = [
+        ('cash', 'Cash'),
+        ('mobile_money', 'Mobile Money'),
+        ('bank', 'Bank'),
+        ('card', 'Card'),
+    ]
+    
     STATUS_CHOICES = [
         ('pending', 'Pending'),
         ('completed', 'Completed'),
@@ -297,6 +305,7 @@ class Transaction(models.Model):
     currency = models.CharField(max_length=3, default='USD')
     transaction_type = models.CharField(max_length=20, choices=TRANSACTION_TYPES)
     category = models.ForeignKey(Category, on_delete=models.SET_NULL, null=True, blank=True, related_name='transactions')
+    payment_method = models.CharField(max_length=20, choices=PAYMENT_METHODS, default='cash')
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='completed')
     
     # Transaction metadata
@@ -330,6 +339,65 @@ class Transaction(models.Model):
     def save(self, *args, **kwargs):
         self.clean()
         super().save(*args, **kwargs)
+
+
+class BusinessHealth(models.Model):
+    """Business health metrics and analytics"""
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='business_health')
+    financial_health = models.DecimalField(max_digits=5, decimal_places=2, null=True, blank=True)
+    inventory_efficiency = models.DecimalField(max_digits=5, decimal_places=2, null=True, blank=True)
+    customer_satisfaction = models.DecimalField(max_digits=5, decimal_places=2, null=True, blank=True)
+    overall_score = models.DecimalField(max_digits=5, decimal_places=2, null=True, blank=True)
+    recommendations = models.JSONField(default=list, blank=True)
+    calculated_at = models.DateTimeField(auto_now_add=True)
+    
+    class Meta:
+        ordering = ['-calculated_at']
+        verbose_name = "Business Health"
+        verbose_name_plural = "Business Health Metrics"
+    
+    def __str__(self):
+        return f"{self.user.username} - Business Health - {self.calculated_at.strftime('%Y-%m-%d')}"
+    
+    def calculate_overall_score(self):
+        """Calculate overall business health score"""
+        scores = []
+        if self.financial_health is not None:
+            scores.append(self.financial_health)
+        if self.inventory_efficiency is not None:
+            scores.append(self.inventory_efficiency)
+        if self.customer_satisfaction is not None:
+            scores.append(self.customer_satisfaction)
+        
+        if scores:
+            self.overall_score = sum(scores) / len(scores)
+        else:
+            self.overall_score = None
+    
+    def save(self, *args, **kwargs):
+        self.calculate_overall_score()
+        super().save(*args, **kwargs)
+    
+    def get_health_status(self):
+        """Get health status based on overall score"""
+        if self.overall_score is None:
+            return 'unknown'
+        elif self.overall_score >= 80:
+            return 'excellent'
+        elif self.overall_score >= 60:
+            return 'good'
+        elif self.overall_score >= 40:
+            return 'fair'
+        else:
+            return 'poor'
+    
+    def get_recommendations_summary(self):
+        """Get a summary of recommendations"""
+        if not self.recommendations:
+            return "No specific recommendations at this time."
+        
+        return f"{len(self.recommendations)} recommendations available"
 
 
 class Budget(models.Model):
@@ -485,4 +553,209 @@ class Goal(models.Model):
         from datetime import date
         today = date.today()
         return (self.target_date - today).days
+
+
+class PaymentTransaction(models.Model):
+    """Payment transaction model for mobile money and bank transfers"""
+    TRANSACTION_TYPES = [
+        ('send', 'Send'),
+        ('receive', 'Receive'),
+        ('withdraw', 'Withdraw'),
+        ('deposit', 'Deposit'),
+    ]
+    
+    PROVIDERS = [
+        ('mtn', 'MTN Mobile Money'),
+        ('airtel', 'Airtel Money'),
+        ('bank', 'Bank Transfer'),
+    ]
+    
+    STATUS_CHOICES = [
+        ('pending', 'Pending'),
+        ('processing', 'Processing'),
+        ('completed', 'Completed'),
+        ('failed', 'Failed'),
+        ('cancelled', 'Cancelled'),
+    ]
+    
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='payment_transactions')
+    transaction_type = models.CharField(max_length=20, choices=TRANSACTION_TYPES)
+    provider = models.CharField(max_length=20, choices=PROVIDERS)
+    phone_number = models.CharField(max_length=20)
+    amount = models.DecimalField(max_digits=15, decimal_places=2)
+    fee = models.DecimalField(max_digits=15, decimal_places=2, default=0.00)
+    total_amount = models.DecimalField(max_digits=15, decimal_places=2)
+    reference = models.CharField(max_length=100, unique=True)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
+    description = models.TextField(blank=True)
+    confirmation_code = models.CharField(max_length=50, blank=True)
+    timestamp = models.DateTimeField(auto_now_add=True)
+    
+    class Meta:
+        ordering = ['-timestamp']
+        verbose_name = "Payment Transaction"
+        verbose_name_plural = "Payment Transactions"
+        indexes = [
+            models.Index(fields=['user', 'status']),
+            models.Index(fields=['reference']),
+            models.Index(fields=['timestamp']),
+        ]
+    
+    def __str__(self):
+        return f"{self.get_transaction_type_display()} - {self.amount} via {self.get_provider_display()}"
+    
+    def clean(self):
+        if self.amount <= 0:
+            raise ValidationError("Amount must be greater than zero")
+        if self.fee < 0:
+            raise ValidationError("Fee cannot be negative")
+        if self.total_amount != self.amount + self.fee:
+            raise ValidationError("Total amount must equal amount plus fee")
+    
+    def save(self, *args, **kwargs):
+        self.clean()
+        # Calculate total amount if not set
+        if not self.total_amount:
+            self.total_amount = self.amount + self.fee
+        super().save(*args, **kwargs)
+    
+    def get_net_amount(self):
+        """Get net amount after fees"""
+        return self.amount - self.fee
+    
+    def is_successful(self):
+        """Check if transaction was successful"""
+        return self.status == 'completed'
+    
+    def can_be_cancelled(self):
+        """Check if transaction can be cancelled"""
+        return self.status in ['pending', 'processing']
+
+
+class BulkPayment(models.Model):
+    """Bulk payment model for sending multiple payments"""
+    STATUS_CHOICES = [
+        ('draft', 'Draft'),
+        ('scheduled', 'Scheduled'),
+        ('processing', 'Processing'),
+        ('completed', 'Completed'),
+        ('failed', 'Failed'),
+    ]
+    
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='bulk_payments')
+    name = models.CharField(max_length=255)
+    total_amount = models.DecimalField(max_digits=15, decimal_places=2)
+    recipient_count = models.IntegerField()
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='draft')
+    scheduled_date = models.DateTimeField(blank=True, null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    class Meta:
+        ordering = ['-created_at']
+        verbose_name = "Bulk Payment"
+        verbose_name_plural = "Bulk Payments"
+    
+    def __str__(self):
+        return f"{self.name} - {self.recipient_count} recipients"
+    
+    def clean(self):
+        if self.total_amount <= 0:
+            raise ValidationError("Total amount must be greater than zero")
+        if self.recipient_count <= 0:
+            raise ValidationError("Recipient count must be greater than zero")
+    
+    def save(self, *args, **kwargs):
+        self.clean()
+        super().save(*args, **kwargs)
+    
+    def get_successful_recipients(self):
+        """Get count of successful recipients"""
+        return self.recipients.filter(status='sent').count()
+    
+    def get_failed_recipients(self):
+        """Get count of failed recipients"""
+        return self.recipients.filter(status='failed').count()
+    
+    def get_pending_recipients(self):
+        """Get count of pending recipients"""
+        return self.recipients.filter(status='pending').count()
+    
+    def get_success_rate(self):
+        """Calculate success rate percentage"""
+        total = self.recipient_count
+        if total > 0:
+            successful = self.get_successful_recipients()
+            return (successful / total) * 100
+        return 0
+    
+    def can_be_processed(self):
+        """Check if bulk payment can be processed"""
+        return self.status in ['draft', 'scheduled']
+    
+    def mark_as_processing(self):
+        """Mark bulk payment as processing"""
+        self.status = 'processing'
+        self.save()
+    
+    def mark_as_completed(self):
+        """Mark bulk payment as completed"""
+        self.status = 'completed'
+        self.save()
+    
+    def mark_as_failed(self):
+        """Mark bulk payment as failed"""
+        self.status = 'failed'
+        self.save()
+
+
+class BulkPaymentRecipient(models.Model):
+    """Individual recipient in a bulk payment"""
+    STATUS_CHOICES = [
+        ('pending', 'Pending'),
+        ('sent', 'Sent'),
+        ('failed', 'Failed'),
+    ]
+    
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    bulk_payment = models.ForeignKey(BulkPayment, on_delete=models.CASCADE, related_name='recipients')
+    phone_number = models.CharField(max_length=20)
+    amount = models.DecimalField(max_digits=15, decimal_places=2)
+    name = models.CharField(max_length=255, blank=True)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
+    reference = models.CharField(max_length=100, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    
+    class Meta:
+        ordering = ['created_at']
+        verbose_name = "Bulk Payment Recipient"
+        verbose_name_plural = "Bulk Payment Recipients"
+        unique_together = ['bulk_payment', 'phone_number']
+    
+    def __str__(self):
+        return f"{self.name or self.phone_number} - {self.amount}"
+    
+    def clean(self):
+        if self.amount <= 0:
+            raise ValidationError("Amount must be greater than zero")
+    
+    def save(self, *args, **kwargs):
+        self.clean()
+        super().save(*args, **kwargs)
+    
+    def mark_as_sent(self, reference=None):
+        """Mark recipient as sent"""
+        self.status = 'sent'
+        if reference:
+            self.reference = reference
+        self.save()
+    
+    def mark_as_failed(self, reference=None):
+        """Mark recipient as failed"""
+        self.status = 'failed'
+        if reference:
+            self.reference = reference
+        self.save()
 

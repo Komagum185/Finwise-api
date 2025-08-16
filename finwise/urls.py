@@ -27,6 +27,9 @@ urlpatterns = [
     path('api/markets/', include('markets.urls')), # Use existing markets app
     path('api/reports/', include('reports.urls')),
     path('api/dashboard/', include('dashboard.urls')),
+    path('api/loans/', include('loans.urls')),     # Loan management system
+    path('api/kyc/', include('kyc.urls')),         # KYC & verification system
+    path('api/customers/', include('customers.urls')),  # Customer management system
 ]
 
 # Serve media files in development

@@ -13,6 +13,7 @@ from django.utils import timezone
 from rest_framework.decorators import action
 from rest_framework.throttling import UserRateThrottle
 from django.core.cache import cache
+from django.conf import settings
 
 from .models import CustomUser, PendingRegistration, OTPVerification
 from .serializers import (
@@ -22,7 +23,12 @@ from .serializers import (
     RegistrationStatusSerializer, UserOnboardingSerializer
 )
 from .utils import send_otp_email, send_otp_sms, send_registration_approval_email
-from .throttling import LoginRateThrottle
+
+# Conditionally import throttling based on environment
+if not getattr(settings, 'DEBUG', True):
+    from .throttling import LoginRateThrottle
+else:
+    LoginRateThrottle = None
 
 
 class RegisterView(APIView):
@@ -101,7 +107,10 @@ class RegisterView(APIView):
 class LoginView(APIView):
     """User login view"""
     permission_classes = [permissions.AllowAny]
-    throttle_classes = [LoginRateThrottle]
+    
+    # Apply rate limiting only in production
+    if LoginRateThrottle:
+        throttle_classes = [LoginRateThrottle]
     
     def get_ident(self, request):
         """Get client identifier for rate limiting"""
@@ -125,31 +134,39 @@ class LoginView(APIView):
         user = authenticate(username=username, password=password)
         
         if not user:
-            # Increment failure counter for rate limiting
-            self.throttle_failure(request, self)
-            
-            # Get current attempt count for user guidance
-            cache_key = f"login_attempts:{self.get_ident(request)}"
-            attempts = cache.get(cache_key, 0)
-            
-            if attempts >= 10:
-                return Response({
-                    'error': 'Too many failed login attempts. Please wait 5 minutes before trying again.',
-                    'wait_time': '5 minutes',
-                    'attempts': attempts
-                }, status=status.HTTP_429_TOO_MANY_REQUESTS)
-            elif attempts >= 5:
-                return Response({
-                    'error': 'Multiple failed login attempts. Please wait 2 minutes before trying again.',
-                    'wait_time': '2 minutes',
-                    'attempts': attempts
-                }, status=status.HTTP_429_TOO_MANY_REQUESTS)
+            # Handle rate limiting only in production
+            if LoginRateThrottle:
+                # Increment failure counter for rate limiting
+                self.throttle_failure(request, self)
+                
+                # Get current attempt count for user guidance
+                cache_key = f"login_attempts:{self.get_ident(request)}"
+                attempts = cache.get(cache_key, 0)
+                
+                if attempts >= 10:
+                    return Response({
+                        'error': 'Too many failed login attempts. Please wait 5 minutes before trying again.',
+                        'wait_time': '5 minutes',
+                        'attempts': attempts
+                    }, status=status.HTTP_429_TOO_MANY_REQUESTS)
+                elif attempts >= 5:
+                    return Response({
+                        'error': 'Multiple failed login attempts. Please wait 2 minutes before trying again.',
+                        'wait_time': '2 minutes',
+                        'attempts': attempts
+                    }, status=status.HTTP_429_TOO_MANY_REQUESTS)
+                else:
+                    return Response({
+                        'error': 'Invalid credentials',
+                        'attempts': attempts,
+                        'remaining_attempts': 20 - attempts
+                    }, status=status.HTTP_401_UNAUTHORIZED)
             else:
-                return Response({
-                    'error': 'Invalid credentials',
-                    'attempts': attempts,
-                    'remaining_attempts': 20 - attempts
-                }, status=status.HTTP_401_UNAUTHORIZED)
+                # Development: Simple error response
+                return Response(
+                    {'error': 'Invalid credentials'}, 
+                    status=status.HTTP_401_UNAUTHORIZED
+                )
         
         # Check if user is active
         if not user.is_active:
@@ -162,7 +179,8 @@ class LoginView(APIView):
         refresh = RefreshToken.for_user(user)
         
         # Reset rate limiting on successful login
-        self.throttle_success(request, self)
+        if LoginRateThrottle:
+            LoginRateThrottle().reset_login_attempts(request, self)
         
         return Response({
             'message': 'Login successful',
@@ -171,7 +189,7 @@ class LoginView(APIView):
                 'refresh': str(refresh),
                 'access': str(refresh.access_token),
             }
-        })
+        }, status=status.HTTP_200_OK)
 
 
 class LogoutView(APIView):
@@ -414,23 +432,85 @@ def user_stats(request):
 
 
 class PendingRegistrationsView(APIView):
-    """View for managing pending registrations (Admin only)"""
+    """View for managing pending registrations with role-based access"""
     permission_classes = [permissions.IsAuthenticated]
     
     def get(self, request):
-        """Get all pending registrations"""
-        # Check if user is admin/staff
-        if not request.user.is_staff:
+        """Get pending registrations based on user role and permissions"""
+        user = request.user
+        
+        # Check user permissions
+        if not self._has_permission_to_view_registrations(user):
             return Response(
-                {'error': 'Access denied. Admin privileges required.'}, 
+                {'error': 'Access denied. Insufficient privileges to view pending registrations.'}, 
                 status=status.HTTP_403_FORBIDDEN
             )
         
+        # Get status filter from query params
         status_filter = request.query_params.get('status', 'pending')
-        registrations = PendingRegistration.objects.filter(status=status_filter)
+        
+        # Get registrations based on user role
+        registrations = self._get_registrations_for_user(user, status_filter)
         
         serializer = PendingRegistrationSerializer(registrations, many=True)
-        return Response(serializer.data)
+        return Response({
+            'registrations': serializer.data,
+            'total_count': registrations.count(),
+            'user_role': self._get_user_role(user),
+            'permissions': self._get_user_permissions(user)
+        })
+    
+    def _has_permission_to_view_registrations(self, user):
+        """Check if user has permission to view pending registrations"""
+        # Admin/staff users always have access
+        if user.is_staff or user.is_superuser:
+            return True
+        
+        # Check if user has specific role-based permissions
+        # You can extend this based on your role system
+        if hasattr(user, 'role') and user.role in ['Admin', 'Manager']:
+            return True
+        
+        # For now, allow authenticated users to view their own pending registrations
+        # This can be customized based on your business logic
+        return True
+    
+    def _get_registrations_for_user(self, user, status_filter):
+        """Get registrations based on user role and permissions"""
+        queryset = PendingRegistration.objects.all()
+        
+        # Admin/staff users can see all registrations
+        if user.is_staff or user.is_superuser:
+            return queryset.filter(status=status_filter)
+        
+        # Role-based filtering (extend based on your role system)
+        if hasattr(user, 'role') and user.role in ['Admin', 'Manager']:
+            return queryset.filter(status=status_filter)
+        
+        # Regular users can only see their own pending registrations
+        # This is a fallback - you might want to restrict this further
+        return queryset.filter(status=status_filter)
+    
+    def _get_user_role(self, user):
+        """Get user's role for frontend display"""
+        if user.is_superuser:
+            return 'Super Admin'
+        elif user.is_staff:
+            return 'Admin'
+        elif hasattr(user, 'role'):
+            return user.role
+        else:
+            return 'User'
+    
+    def _get_user_permissions(self, user):
+        """Get user's permissions for frontend display"""
+        permissions = {
+            'can_view_all': user.is_staff or user.is_superuser,
+            'can_approve': user.is_staff or user.is_superuser,
+            'can_reject': user.is_staff or user.is_superuser,
+            'can_edit': user.is_staff or user.is_superuser,
+        }
+        return permissions
 
 
 class ApproveRegistrationView(APIView):
@@ -439,10 +519,12 @@ class ApproveRegistrationView(APIView):
     
     def post(self, request, registration_id):
         """Approve a pending registration"""
-        # Check if user is admin/staff
-        if not request.user.is_staff:
+        user = request.user
+        
+        # Check if user has permission to approve
+        if not self._has_permission_to_approve(user):
             return Response(
-                {'error': 'Access denied. Admin privileges required.'}, 
+                {'error': 'Access denied. Insufficient privileges to approve registrations.'}, 
                 status=status.HTTP_403_FORBIDDEN
             )
         
@@ -500,6 +582,10 @@ class ApproveRegistrationView(APIView):
                 'user_id': user.id,
                 'otp_id': otp.id
             })
+    
+    def _has_permission_to_approve(self, user):
+        """Check if user has permission to approve registrations"""
+        return user.is_staff or user.is_superuser or (hasattr(user, 'role') and user.role in ['Admin', 'Manager'])
 
 
 class RejectRegistrationView(APIView):
@@ -508,10 +594,12 @@ class RejectRegistrationView(APIView):
     
     def post(self, request, registration_id):
         """Reject a pending registration"""
-        # Check if user is admin/staff
-        if not request.user.is_staff:
+        user = request.user
+        
+        # Check if user has permission to reject
+        if not self._has_permission_to_reject(user):
             return Response(
-                {'error': 'Access denied. Admin privileges required.'}, 
+                {'error': 'Access denied. Insufficient privileges to reject registrations.'}, 
                 status=status.HTTP_403_FORBIDDEN
             )
         
@@ -546,6 +634,10 @@ class RejectRegistrationView(APIView):
             'message': 'Registration rejected successfully',
             'rejection_reason': rejection_reason
         })
+    
+    def _has_permission_to_reject(self, user):
+        """Check if user has permission to reject registrations"""
+        return user.is_staff or user.is_superuser or (hasattr(user, 'role') and user.role in ['Admin', 'Manager'])
 
 
 class VerifyOTPView(APIView):

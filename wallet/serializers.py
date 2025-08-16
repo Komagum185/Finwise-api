@@ -3,7 +3,8 @@ from django.db.models import Sum, Count
 from django.utils import timezone
 from .models import (
     Category, Transaction, Budget, Goal, EnhancedWallet, 
-    EnhancedWalletTransaction, WalletTransfer, WalletStatistics
+    EnhancedWalletTransaction, WalletTransfer, WalletStatistics,
+    PaymentTransaction, BulkPayment, BulkPaymentRecipient
 )
 from mses.models import Wallet as MSEWallet, WalletTransaction as MSEWalletTransaction
 
@@ -195,4 +196,124 @@ class GoalCreateSerializer(serializers.ModelSerializer):
         fields = ['name', 'description', 'goal_type', 'target_amount', 
                  'target_date', 'monthly_target', 'motivation_note', 
                  'image_url', 'reminders_enabled', 'reminder_frequency']
+
+
+# Payment Transaction Serializers
+class PaymentTransactionSerializer(serializers.ModelSerializer):
+    """Payment transaction serializer"""
+    user_name = serializers.CharField(source='user.username', read_only=True)
+    transaction_type_display = serializers.CharField(source='get_transaction_type_display', read_only=True)
+    provider_display = serializers.CharField(source='get_provider_display', read_only=True)
+    status_display = serializers.CharField(source='get_status_display', read_only=True)
+    net_amount = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = PaymentTransaction
+        fields = [
+            'id', 'user', 'user_name', 'transaction_type', 'transaction_type_display',
+            'provider', 'provider_display', 'phone_number', 'amount', 'fee', 'total_amount',
+            'net_amount', 'reference', 'status', 'status_display', 'description',
+            'confirmation_code', 'timestamp'
+        ]
+        read_only_fields = ['id', 'user', 'user_name', 'transaction_type_display',
+                           'provider_display', 'status_display', 'net_amount', 'timestamp']
+    
+    def get_net_amount(self, obj):
+        return obj.get_net_amount()
+    
+    def validate(self, data):
+        """Validate payment transaction data"""
+        if data.get('amount') and data['amount'] <= 0:
+            raise serializers.ValidationError("Amount must be greater than zero")
+        if data.get('fee') and data['fee'] < 0:
+            raise serializers.ValidationError("Fee cannot be negative")
+        return data
+    
+    def create(self, validated_data):
+        validated_data['user'] = self.context['request'].user
+        return super().create(validated_data)
+
+
+class BulkPaymentSerializer(serializers.ModelSerializer):
+    """Bulk payment serializer"""
+    user_name = serializers.CharField(source='user.username', read_only=True)
+    status_display = serializers.CharField(source='get_status_display', read_only=True)
+    successful_recipients = serializers.SerializerMethodField()
+    failed_recipients = serializers.SerializerMethodField()
+    pending_recipients = serializers.SerializerMethodField()
+    success_rate = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = BulkPayment
+        fields = [
+            'id', 'user', 'user_name', 'name', 'total_amount', 'recipient_count',
+            'status', 'status_display', 'scheduled_date', 'successful_recipients',
+            'failed_recipients', 'pending_recipients', 'success_rate', 'created_at', 'updated_at'
+        ]
+        read_only_fields = ['id', 'user', 'user_name', 'status_display', 'successful_recipients',
+                           'failed_recipients', 'pending_recipients', 'success_rate', 'created_at', 'updated_at']
+    
+    def get_successful_recipients(self, obj):
+        return obj.get_successful_recipients()
+    
+    def get_failed_recipients(self, obj):
+        return obj.get_failed_recipients()
+    
+    def get_pending_recipients(self, obj):
+        return obj.get_pending_recipients()
+    
+    def get_success_rate(self, obj):
+        return obj.get_success_rate()
+    
+    def validate(self, data):
+        """Validate bulk payment data"""
+        if data.get('total_amount') and data['total_amount'] <= 0:
+            raise serializers.ValidationError("Total amount must be greater than zero")
+        if data.get('recipient_count') and data['recipient_count'] <= 0:
+            raise serializers.ValidationError("Recipient count must be greater than zero")
+        return data
+    
+    def create(self, validated_data):
+        validated_data['user'] = self.context['request'].user
+        return super().create(validated_data)
+
+
+class BulkPaymentRecipientSerializer(serializers.ModelSerializer):
+    """Bulk payment recipient serializer"""
+    status_display = serializers.CharField(source='get_status_display', read_only=True)
+    
+    class Meta:
+        model = BulkPaymentRecipient
+        fields = [
+            'id', 'bulk_payment', 'phone_number', 'amount', 'name', 'status',
+            'status_display', 'reference', 'created_at'
+        ]
+        read_only_fields = ['id', 'status_display', 'created_at']
+    
+    def validate(self, data):
+        """Validate recipient data"""
+        if data.get('amount') and data['amount'] <= 0:
+            raise serializers.ValidationError("Amount must be greater than zero")
+        return data
+
+
+# Summary and Analytics Serializers
+class PaymentSummarySerializer(serializers.Serializer):
+    """Payment summary statistics"""
+    total_transactions = serializers.IntegerField()
+    total_amount = serializers.DecimalField(max_digits=15, decimal_places=2)
+    successful_transactions = serializers.IntegerField()
+    failed_transactions = serializers.IntegerField()
+    success_rate = serializers.FloatField()
+    total_fees = serializers.DecimalField(max_digits=15, decimal_places=2)
+    recent_transactions = serializers.ListField()
+
+
+class BulkPaymentSummarySerializer(serializers.Serializer):
+    """Bulk payment summary statistics"""
+    total_bulk_payments = serializers.IntegerField()
+    total_recipients = serializers.IntegerField()
+    total_amount_sent = serializers.DecimalField(max_digits=15, decimal_places=2)
+    average_success_rate = serializers.FloatField()
+    recent_bulk_payments = serializers.ListField()
 

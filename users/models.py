@@ -70,6 +70,29 @@ class CustomUser(AbstractUser):
     marketing_consent = models.BooleanField(default=False)
     terms_accepted_at = models.DateTimeField(null=True, blank=True)
     
+    # Enhanced User fields
+    ROLE_CHOICES = [
+        ('Admin', 'Admin'),
+        ('Input MSE', 'Input MSE'),
+        ('Production MSE', 'Production MSE'),
+        ('Output MSE', 'Output MSE'),
+        ('MicroBusiness', 'Micro Business'),
+    ]
+    
+    STATUS_CHOICES = [
+        ('active', 'Active'),
+        ('inactive', 'Inactive'),
+        ('suspended', 'Suspended'),
+    ]
+    
+    role = models.CharField(max_length=20, choices=ROLE_CHOICES, default='MicroBusiness')
+    business_type = models.CharField(max_length=50, blank=True)
+    business_location = models.CharField(max_length=255, blank=True)
+    business_description = models.TextField(blank=True)
+    registration_date = models.DateTimeField(auto_now_add=True)
+    last_login = models.DateTimeField(null=True, blank=True)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='active')
+    
     # Onboarding tracking
     onboarding_completed = models.BooleanField(default=False)
     onboarding_completed_at = models.DateTimeField(null=True, blank=True)
@@ -106,6 +129,22 @@ class CustomUser(AbstractUser):
         self.onboarding_completed = True
         self.onboarding_completed_at = timezone.now()
         self.save()
+    
+    def update_last_login(self):
+        """Update the last login timestamp"""
+        self.last_login = timezone.now()
+        self.save(update_fields=['last_login'])
+    
+    def get_business_info(self):
+        """Get business information summary"""
+        return {
+            'role': self.role,
+            'business_type': self.business_type,
+            'business_location': self.business_location,
+            'business_description': self.business_description,
+            'status': self.status,
+            'registration_date': self.registration_date
+        }
 
 
 class User(models.Model):

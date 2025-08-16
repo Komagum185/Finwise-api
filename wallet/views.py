@@ -9,14 +9,17 @@ from rest_framework.filters import SearchFilter, OrderingFilter
 
 from .models import (
     Category, Transaction, Budget, Goal, EnhancedWallet, 
-    EnhancedWalletTransaction, WalletTransfer, WalletStatistics
+    EnhancedWalletTransaction, WalletTransfer, WalletStatistics,
+    PaymentTransaction, BulkPayment, BulkPaymentRecipient
 )
 from .serializers import (
     CategorySerializer, TransactionSerializer, BudgetSerializer, GoalSerializer,
     EnhancedWalletSerializer, EnhancedWalletTransactionSerializer,
     WalletTransferSerializer, WalletStatisticsSerializer,
     WalletTransactionRequestSerializer, WalletFilterSerializer,
-    WalletSerializer, WalletTransactionSerializer
+    WalletSerializer, WalletTransactionSerializer,
+    PaymentTransactionSerializer, BulkPaymentSerializer, BulkPaymentRecipientSerializer,
+    PaymentSummarySerializer, BulkPaymentSummarySerializer
 )
 from mses.models import Wallet as MSEWallet, WalletTransaction as MSEWalletTransaction
 
@@ -752,4 +755,231 @@ class GoalViewSet(viewsets.ModelViewSet):
         
         serializer = self.get_serializer(goal)
         return Response(serializer.data)
+
+
+# Payment Transaction ViewSets
+class PaymentTransactionViewSet(viewsets.ModelViewSet):
+    """Payment transaction management viewset"""
+    serializer_class = PaymentTransactionSerializer
+    permission_classes = [IsAuthenticated]
+    filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
+    filterset_fields = ['transaction_type', 'provider', 'status']
+    search_fields = ['phone_number', 'reference', 'description']
+    ordering_fields = ['amount', 'timestamp', 'status']
+    ordering = ['-timestamp']
+    
+    def get_queryset(self):
+        return PaymentTransaction.objects.filter(user=self.request.user)
+    
+    @action(detail=True, methods=['post'])
+    def cancel_transaction(self, request, pk=None):
+        """Cancel a pending transaction"""
+        transaction = self.get_object()
+        
+        if not transaction.can_be_cancelled():
+            return Response(
+                {'error': 'Transaction cannot be cancelled'}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        transaction.status = 'cancelled'
+        transaction.save()
+        
+        serializer = self.get_serializer(transaction)
+        return Response(serializer.data)
+    
+    @action(detail=True, methods=['post'])
+    def confirm_transaction(self, request, pk=None):
+        """Confirm a transaction with confirmation code"""
+        transaction = self.get_object()
+        confirmation_code = request.data.get('confirmation_code')
+        
+        if not confirmation_code:
+            return Response(
+                {'error': 'Confirmation code is required'}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Here you would validate the confirmation code with the provider
+        # For now, we'll simulate confirmation
+        transaction.confirmation_code = confirmation_code
+        transaction.status = 'completed'
+        transaction.save()
+        
+        serializer = self.get_serializer(transaction)
+        return Response(serializer.data)
+    
+    @action(detail=False, methods=['get'])
+    def summary(self, request):
+        """Get payment transaction summary statistics"""
+        queryset = self.get_queryset()
+        
+        total_transactions = queryset.count()
+        total_amount = queryset.aggregate(total=Sum('amount'))['total'] or 0
+        successful_transactions = queryset.filter(status='completed').count()
+        failed_transactions = queryset.filter(status='failed').count()
+        total_fees = queryset.aggregate(total=Sum('fee'))['total'] or 0
+        
+        success_rate = (successful_transactions / total_transactions * 100) if total_transactions > 0 else 0
+        
+        recent_transactions = queryset.order_by('-timestamp')[:10].values(
+            'id', 'transaction_type', 'provider', 'amount', 'status', 'timestamp'
+        )
+        
+        data = {
+            'total_transactions': total_transactions,
+            'total_amount': total_amount,
+            'successful_transactions': successful_transactions,
+            'failed_transactions': failed_transactions,
+            'success_rate': success_rate,
+            'total_fees': total_fees,
+            'recent_transactions': list(recent_transactions),
+        }
+        
+        serializer = PaymentSummarySerializer(data)
+        return Response(serializer.data)
+
+
+class BulkPaymentViewSet(viewsets.ModelViewSet):
+    """Bulk payment management viewset"""
+    serializer_class = BulkPaymentSerializer
+    permission_classes = [IsAuthenticated]
+    filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
+    filterset_fields = ['status', 'scheduled_date']
+    search_fields = ['name']
+    ordering_fields = ['total_amount', 'recipient_count', 'created_at']
+    ordering = ['-created_at']
+    
+    def get_queryset(self):
+        return BulkPayment.objects.filter(user=self.request.user)
+    
+    @action(detail=True, methods=['post'])
+    def process_bulk_payment(self, request, pk=None):
+        """Process a bulk payment"""
+        bulk_payment = self.get_object()
+        
+        if not bulk_payment.can_be_processed():
+            return Response(
+                {'error': 'Bulk payment cannot be processed'}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        bulk_payment.mark_as_processing()
+        
+        # Here you would process each recipient
+        # For now, we'll simulate processing
+        recipients = bulk_payment.recipients.all()
+        success_count = 0
+        failure_count = 0
+        
+        for recipient in recipients:
+            # Simulate processing with 90% success rate
+            import random
+            if random.random() < 0.9:
+                recipient.mark_as_sent(f"REF_{recipient.id}")
+                success_count += 1
+            else:
+                recipient.mark_as_failed("Failed")
+                failure_count += 1
+        
+        if failure_count == 0:
+            bulk_payment.mark_as_completed()
+        else:
+            bulk_payment.mark_as_failed()
+        
+        serializer = self.get_serializer(bulk_payment)
+        return Response(serializer.data)
+    
+    @action(detail=True, methods=['post'])
+    def schedule_bulk_payment(self, request, pk=None):
+        """Schedule a bulk payment"""
+        bulk_payment = self.get_object()
+        scheduled_date = request.data.get('scheduled_date')
+        
+        if not scheduled_date:
+            return Response(
+                {'error': 'Scheduled date is required'}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        bulk_payment.scheduled_date = scheduled_date
+        bulk_payment.status = 'scheduled'
+        bulk_payment.save()
+        
+        serializer = self.get_serializer(bulk_payment)
+        return Response(serializer.data)
+    
+    @action(detail=False, methods=['get'])
+    def summary(self, request):
+        """Get bulk payment summary statistics"""
+        queryset = self.get_queryset()
+        
+        total_bulk_payments = queryset.count()
+        total_recipients = queryset.aggregate(total=Sum('recipient_count'))['total'] or 0
+        total_amount_sent = queryset.aggregate(total=Sum('total_amount'))['total'] or 0
+        
+        # Calculate average success rate
+        success_rates = []
+        for bulk_payment in queryset:
+            if bulk_payment.recipient_count > 0:
+                success_rates.append(bulk_payment.get_success_rate())
+        
+        average_success_rate = sum(success_rates) / len(success_rates) if success_rates else 0
+        
+        recent_bulk_payments = queryset.order_by('-created_at')[:5].values(
+            'id', 'name', 'total_amount', 'recipient_count', 'status', 'created_at'
+        )
+        
+        data = {
+            'total_bulk_payments': total_bulk_payments,
+            'total_recipients': total_recipients,
+            'total_amount_sent': total_amount_sent,
+            'average_success_rate': average_success_rate,
+            'recent_bulk_payments': list(recent_bulk_payments),
+        }
+        
+        serializer = BulkPaymentSummarySerializer(data)
+        return Response(serializer.data)
+
+
+class BulkPaymentRecipientViewSet(viewsets.ModelViewSet):
+    """Bulk payment recipient management viewset"""
+    serializer_class = BulkPaymentRecipientSerializer
+    permission_classes = [IsAuthenticated]
+    filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
+    filterset_fields = ['status', 'bulk_payment']
+    search_fields = ['phone_number', 'name']
+    ordering_fields = ['amount', 'created_at']
+    ordering = ['created_at']
+    
+    def get_queryset(self):
+        # Filter recipients by bulk payments owned by the user
+        return BulkPaymentRecipient.objects.filter(bulk_payment__user=self.request.user)
+    
+    @action(detail=True, methods=['post'])
+    def retry_payment(self, request, pk=None):
+        """Retry a failed payment"""
+        recipient = self.get_object()
+        
+        if recipient.status != 'failed':
+            return Response(
+                {'error': 'Only failed payments can be retried'}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Here you would retry the payment
+        # For now, we'll simulate retry with 80% success rate
+        import random
+        if random.random() < 0.8:
+            recipient.mark_as_sent(f"RETRY_REF_{recipient.id}")
+            message = "Payment retry successful"
+        else:
+            recipient.mark_as_failed("Retry failed")
+            message = "Payment retry failed"
+        
+        serializer = self.get_serializer(recipient)
+        return Response({
+            'message': message,
+            'recipient': serializer.data
+        })
 
