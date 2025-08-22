@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import MSE, InputMSE, OutputMSE, ProductionMSE, MSECategory, Wallet, UserRole
+from .models import MSE, InputMSE, OutputMSE, ProductionMSE, MSECategory, Wallet, UserRole, WalletTransaction
 
 
 class MSESerializer(serializers.ModelSerializer):
@@ -95,6 +95,15 @@ class UserRoleSerializer(serializers.ModelSerializer):
         read_only_fields = ['created_at', 'updated_at']
 
 
+class WalletTransactionSerializer(serializers.ModelSerializer):
+    """Serializer for WalletTransaction model"""
+    
+    class Meta:
+        model = WalletTransaction
+        fields = '__all__'
+        read_only_fields = ['transaction_date']
+
+
 # Comprehensive MSE serializer with all related data
 class ComprehensiveMSESerializer(serializers.ModelSerializer):
     """Comprehensive serializer for MSE with all related data"""
@@ -166,4 +175,4 @@ class ProductionMSEListSerializer(serializers.ModelSerializer):
         read_only_fields = ['created_at']
     
     def get_production_efficiency(self, obj):
-        return obj.get_production_efficiency() 
+        return obj.get_production_efficiency()

@@ -10,7 +10,8 @@ router.register(r'production-mses', views.ProductionMSEViewSet, basename='produc
 router.register(r'categories', views.MSECategoryViewSet, basename='mse-category')
 router.register(r'wallets', views.WalletViewSet, basename='wallet')
 router.register(r'users', views.UserRoleViewSet, basename='user-role')
+router.register(r'wallets/(?P<wallet_id>[^/.]+)/transactions', views.WalletTransactionViewSet, basename='wallet-transaction')
 
 urlpatterns = [
     path('', include(router.urls)),
-] 
+]

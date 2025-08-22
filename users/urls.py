@@ -7,10 +7,12 @@ from .views import (
     ResendOTPView, RegisterWithApprovalView, EnhancedRegistrationView,
     RegistrationProgressView, RegistrationStatusView, UserOnboardingView,
     RegistrationAnalyticsView, PasswordResetRequestView, PasswordResetConfirmView,
-    EmailVerificationView, EmailVerificationConfirmView
+    EmailVerificationView, EmailVerificationConfirmView, auth_root
 )
 
 urlpatterns = [
+    # Root endpoint
+    path('', auth_root, name='auth_root'),
     # Authentication endpoints
     path('register/', RegisterView.as_view(), name='register'),
     path('register-with-approval/', RegisterWithApprovalView.as_view(), name='register_with_approval'),

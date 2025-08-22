@@ -18,9 +18,11 @@ from django.contrib import admin
 from django.urls import path, include
 from django.conf import settings
 from django.conf.urls.static import static
+from .views import api_root
 
 urlpatterns = [
     path('admin/', admin.site.urls),
+    path('api/', api_root, name='api_root'),  # API root endpoint
     path('api/wallet/', include('wallet.urls')),  # Consolidated from api + finance_app
     path('api/auth/', include('users.urls')),
     path('api/mses/', include('mses.urls')),       # Use existing mses app
@@ -29,7 +31,10 @@ urlpatterns = [
     path('api/dashboard/', include('dashboard.urls')),
     path('api/loans/', include('loans.urls')),     # Loan management system
     path('api/kyc/', include('kyc.urls')),         # KYC & verification system
-    path('api/customers/', include('customers.urls')),  # Customer management system
+    path('api/customers/', include('customers.urls')),
+    path('api/payments/', include('payments.urls')),
+    path('api/marketplace/', include('marketplace.urls')),  # Customer management system
+    path('api/ussd/', include('ussd.urls')),
 ]
 
 # Serve media files in development

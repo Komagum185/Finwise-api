@@ -68,7 +68,13 @@ class ValueChainStage(models.Model):
     def __str__(self):
         return f"{self.value_chain.name} - Stage {self.order}: {self.name}"
 
+class BaseModel(models.Model):
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)  
 
+    class Meta:
+        abstract = True 
+        
 class ServiceRequest(models.Model):
     """Service Request model for managing service requests"""
     REQUEST_TYPES = [

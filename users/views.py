@@ -31,6 +31,36 @@ else:
     LoginRateThrottle = None
 
 
+@api_view(['GET'])
+@permission_classes([permissions.AllowAny])
+def auth_root(request):
+    """
+    Authentication API root endpoint
+    """
+    auth_info = {
+        "name": "Finwise Authentication API",
+        "version": "1.0.0",
+        "description": "Authentication and user management endpoints",
+        "endpoints": {
+            "register": "/api/auth/register/",
+            "register_with_approval": "/api/auth/register-with-approval/",
+            "login": "/api/auth/login/",
+            "logout": "/api/auth/logout/",
+            "token_refresh": "/api/auth/token/refresh/",
+            "profile": "/api/auth/profile/",
+            "change_password": "/api/auth/change-password/",
+            "password_reset": "/api/auth/password-reset/",
+            "email_verification": "/api/auth/email-verify/",
+            "otp_verification": "/api/auth/verify-otp/",
+            "pending_registrations": "/api/auth/pending-registrations/",
+            "registration_analytics": "/api/auth/registration-analytics/"
+        },
+        "status": "active"
+    }
+    
+    return Response(auth_info)
+
+
 class RegisterView(APIView):
     """User registration view"""
     permission_classes = [permissions.AllowAny]

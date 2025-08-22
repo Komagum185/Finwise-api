@@ -58,6 +58,9 @@ INSTALLED_APPS = [
     'loans',
     'kyc',
     'customers',
+    'payments',
+    'marketplace',
+    'ussd',
 ]
 
 MIDDLEWARE = [

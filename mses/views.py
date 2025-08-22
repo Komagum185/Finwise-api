@@ -3,12 +3,12 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework.filters import SearchFilter, OrderingFilter
-from .models import MSE, InputMSE, OutputMSE, ProductionMSE, MSECategory, Wallet, UserRole
+from .models import MSE, InputMSE, OutputMSE, ProductionMSE, MSECategory, Wallet, UserRole, WalletTransaction
 from .serializers import (
     MSESerializer, InputMSESerializer, OutputMSESerializer, ProductionMSESerializer,
     MSECategorySerializer, WalletSerializer, UserRoleSerializer,
     ComprehensiveMSESerializer, InputMSEListSerializer, OutputMSEListSerializer,
-    ProductionMSEListSerializer
+    ProductionMSEListSerializer, WalletTransactionSerializer
 )
 
 
@@ -343,6 +343,7 @@ class WalletViewSet(viewsets.ModelViewSet):
     search_fields = ['name', 'mse__name', 'account_number']
     ordering_fields = ['balance', 'created_at']
     ordering = ['-created_at']
+    lookup_field = 'account_number'
 
     @action(detail=False, methods=['get'])
     def total_balance(self, request):
@@ -385,3 +386,33 @@ class UserRoleViewSet(viewsets.ModelViewSet):
         
         serializer = self.get_serializer(roles, many=True)
         return Response(serializer.data)
+
+
+class WalletTransactionViewSet(viewsets.ModelViewSet):
+    """ViewSet for WalletTransaction model"""
+    serializer_class = WalletTransactionSerializer
+    permission_classes = [permissions.IsAuthenticated]
+    filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
+    filterset_fields = ['wallet', 'transaction_type', 'status', 'category']
+    search_fields = ['description', 'reference']
+    ordering_fields = ['amount', 'transaction_date']
+    ordering = ['-transaction_date']
+
+    def get_queryset(self):
+        wallet_id = self.kwargs.get('wallet_id')
+        if wallet_id:
+            return WalletTransaction.objects.filter(wallet__account_number=wallet_id)
+        return WalletTransaction.objects.all()
+
+    @action(detail=False, methods=['post'], url_path='create', url_name='create-transaction')
+    def create_transaction(self, request, wallet_id=None):
+        """Create a transaction for a specific wallet"""
+        wallet = Wallet.objects.filter(account_number=wallet_id).first()
+        if not wallet:
+            return Response({'detail': 'Wallet not found.'}, status=404)
+        data = request.data.copy()
+        data['wallet'] = wallet.id
+        serializer = self.get_serializer(data=data)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(serializer.data, status=201)
