@@ -25,7 +25,8 @@ def api_root(request):
             "kyc": "/api/kyc/",
             "customers": "/api/customers/",
             "payments": "/api/payments/",
-            "marketplace": "/api/marketplace/"
+            "marketplace": "/api/marketplace/",
+            "shared": "/api/shared/"
         },
         "status": "active",
         "documentation": "Available at /api/docs/ (if configured)"

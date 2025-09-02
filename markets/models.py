@@ -1,213 +1,59 @@
 from django.db import models
-from django.core.validators import MinValueValidator
-from django.core.exceptions import ValidationError
-from mses.models import MSE, Wallet
-
-
-class Market(models.Model):
-    """Market model for business transactions"""
-    MARKET_TYPES = [
-        ('input', 'Input Market'),
-        ('output', 'Output Market'),
-    ]
-    
-    mse = models.ForeignKey(MSE, on_delete=models.CASCADE, related_name='markets')
-    name = models.CharField(max_length=200)
-    market_type = models.CharField(max_length=20, choices=MARKET_TYPES, default='output')
-    description = models.TextField(blank=True)
-    location = models.CharField(max_length=200, blank=True)
-    is_active = models.BooleanField(default=True)
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
-    
-    def __str__(self):
-        return f"{self.name} ({self.get_market_type_display()})"
-    
-    def clean(self):
-        if not self.name:
-            raise ValidationError("Market name is required")
-    
-    def save(self, *args, **kwargs):
-        self.clean()
-        super().save(*args, **kwargs)
-
-
-class Producer(models.Model):
-    """Producer/Supplier model"""
-    SUPPLIER_TYPES = [
-        ('individual', 'Individual'),
-        ('business', 'Business'),
-        ('farmer', 'Farmer'),
-        ('distributor', 'Distributor'),
-    ]
-    
-    STATUS_CHOICES = [
-        ('active', 'Active'),
-        ('inactive', 'Inactive'),
-        ('pending', 'Pending'),
-        ('suspended', 'Suspended'),
-    ]
-    
-    mse = models.ForeignKey(MSE, on_delete=models.CASCADE, related_name='producers')
-    name = models.CharField(max_length=200)
-    contact_person = models.CharField(max_length=100, blank=True)
-    phone = models.CharField(max_length=20, blank=True)
-    email = models.EmailField(blank=True)
-    address = models.TextField(blank=True)
-    location = models.CharField(max_length=200, blank=True)
-    supplier_type = models.CharField(max_length=20, choices=SUPPLIER_TYPES, default='business')
-    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='active')
-    business_type = models.CharField(max_length=100, blank=True)
-    tax_id = models.CharField(max_length=100, blank=True)
-    products_supplied = models.TextField(blank=True)
-    payment_terms = models.CharField(max_length=100, blank=True)
-    delivery_time = models.CharField(max_length=100, blank=True)
-    minimum_order = models.DecimalField(max_digits=15, decimal_places=2, default=0.00)
-    rating = models.DecimalField(max_digits=3, decimal_places=2, default=0.00)
-    is_active = models.BooleanField(default=True)
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
-    
-    def __str__(self):
-        return f"{self.name} - {self.mse.name}"
-    
-    def clean(self):
-        if not self.name:
-            raise ValidationError("Producer name is required")
-    
-    def save(self, *args, **kwargs):
-        self.clean()
-        super().save(*args, **kwargs)
+from decimal import Decimal
+import uuid
 
 
 class Customer(models.Model):
-    """Customer model"""
-    CUSTOMER_TYPES = [
-        ('individual', 'Individual'),
-        ('business', 'Business'),
-        ('farmer', 'Farmer'),
-        ('distributor', 'Distributor'),
-    ]
-    
-    STATUS_CHOICES = [
-        ('active', 'Active'),
-        ('inactive', 'Inactive'),
-        ('pending', 'Pending'),
-    ]
-    
-    mse = models.ForeignKey(MSE, on_delete=models.CASCADE, related_name='customers')
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    mse = models.ForeignKey('mse.MSE', on_delete=models.CASCADE, related_name='customers')
     name = models.CharField(max_length=200)
-    contact_person = models.CharField(max_length=100, blank=True)
-    phone = models.CharField(max_length=20, blank=True)
-    email = models.EmailField(blank=True)
-    address = models.TextField(blank=True)
-    location = models.CharField(max_length=200, blank=True)
-    customer_type = models.CharField(max_length=20, choices=CUSTOMER_TYPES, default='individual')
-    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='active')
-    business_type = models.CharField(max_length=100, blank=True)
-    tax_id = models.CharField(max_length=100, blank=True)
-    credit_limit = models.DecimalField(max_digits=15, decimal_places=2, default=0.00)
-    payment_terms = models.CharField(max_length=100, blank=True)
-    total_purchases = models.DecimalField(max_digits=15, decimal_places=2, default=0.00)
-    last_purchase_date = models.DateTimeField(null=True, blank=True)
-    is_active = models.BooleanField(default=True)
+    phone_number = models.CharField(max_length=20)
     created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
-    
-    def __str__(self):
-        return f"{self.name} - {self.mse.name}"
-    
-    def clean(self):
-        if not self.name:
-            raise ValidationError("Customer name is required")
-        if self.credit_limit < 0:
-            raise ValidationError("Credit limit cannot be negative")
-    
-    def save(self, *args, **kwargs):
-        self.clean()
-        super().save(*args, **kwargs)
+
+    class Meta:
+        unique_together = ['mse', 'phone_number']
+
+
+class Supplier(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    mse = models.ForeignKey('mse.MSE', on_delete=models.CASCADE, related_name='suppliers')
+    name = models.CharField(max_length=200)
+    phone_number = models.CharField(max_length=20)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ['mse', 'phone_number']
 
 
 class Product(models.Model):
-    """Product model"""
-    PRODUCT_TYPES = [
-        ('goods', 'Goods'),
-        ('services', 'Services'),
-    ]
-    
-    mse = models.ForeignKey(MSE, on_delete=models.CASCADE, related_name='products')
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    mse = models.ForeignKey('mse.MSE', on_delete=models.CASCADE, related_name='products')
     name = models.CharField(max_length=200)
-    product_type = models.CharField(max_length=20, choices=PRODUCT_TYPES, default='goods')
-    description = models.TextField(blank=True)
-    unit_price = models.DecimalField(max_digits=15, decimal_places=2, default=0.00)
-    cost_price = models.DecimalField(max_digits=15, decimal_places=2, default=0.00)
-    stock_quantity = models.IntegerField(default=0)
-    unit = models.CharField(max_length=20, default='piece')
-    is_active = models.BooleanField(default=True)
+    price = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('0.00'))
+    unit = models.CharField(max_length=50, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
-    
-    def __str__(self):
-        return f"{self.name} - {self.mse.name}"
-    
-    def clean(self):
-        if not self.name:
-            raise ValidationError("Product name is required")
-        if self.unit_price < 0:
-            raise ValidationError("Unit price cannot be negative")
-        if self.cost_price < 0:
-            raise ValidationError("Cost price cannot be negative")
-        if self.stock_quantity < 0:
-            raise ValidationError("Stock quantity cannot be negative")
-    
-    def save(self, *args, **kwargs):
-        self.clean()
-        super().save(*args, **kwargs)
 
 
-class BusinessTransaction(models.Model):
-    """Business transaction model"""
-    TRANSACTION_TYPES = [
+class Transaction(models.Model):
+    TYPE_CHOICES = [
         ('purchase', 'Purchase'),
         ('sale', 'Sale'),
-        ('expense', 'Expense'),
-        ('income', 'Income'),
     ]
-    
-    STATUS_CHOICES = [
-        ('pending', 'Pending'),
-        ('completed', 'Completed'),
-        ('cancelled', 'Cancelled'),
-    ]
-    
-    mse = models.ForeignKey(MSE, on_delete=models.CASCADE, related_name='business_transactions')
-    transaction_type = models.CharField(max_length=20, choices=TRANSACTION_TYPES)
-    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    mse = models.ForeignKey('mse.MSE', on_delete=models.CASCADE, related_name='market_transactions')
+    type = models.CharField(max_length=20, choices=TYPE_CHOICES)
+    product = models.ForeignKey(Product, on_delete=models.PROTECT, related_name='transactions')
+    counterparty_name = models.CharField(max_length=200)
     amount = models.DecimalField(max_digits=15, decimal_places=2)
-    currency = models.CharField(max_length=3, default='USD')
-    description = models.TextField(blank=True)
-    reference_number = models.CharField(max_length=100, blank=True)
-    transaction_date = models.DateTimeField()
-    wallet = models.ForeignKey(Wallet, on_delete=models.SET_NULL, null=True, blank=True)
-    producer = models.ForeignKey(Producer, on_delete=models.SET_NULL, null=True, blank=True)
-    customer = models.ForeignKey(Customer, on_delete=models.SET_NULL, null=True, blank=True)
-    product = models.ForeignKey(Product, on_delete=models.SET_NULL, null=True, blank=True)
-    quantity = models.IntegerField(default=1)
-    unit_price = models.DecimalField(max_digits=15, decimal_places=2, null=True, blank=True)
+    quantity = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('0.00'))
     created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
-    
-    def __str__(self):
-        return f"{self.get_transaction_type_display()} - {self.amount} {self.currency}"
-    
-    def clean(self):
-        if not self.amount or self.amount <= 0:
-            raise ValidationError("Amount must be greater than zero")
-        if not self.transaction_date:
-            raise ValidationError("Transaction date is required")
-        if self.quantity <= 0:
-            raise ValidationError("Quantity must be greater than zero")
-    
-    def save(self, *args, **kwargs):
-        self.clean()
-        super().save(*args, **kwargs)
+
+
+class Notification(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    mse = models.ForeignKey('mse.MSE', on_delete=models.CASCADE, related_name='notifications')
+    message = models.CharField(max_length=255)
+    created_at = models.DateTimeField(auto_now_add=True)
+    is_read = models.BooleanField(default=False)
+
+

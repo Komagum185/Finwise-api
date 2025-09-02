@@ -1,17 +1,17 @@
-from django.urls import path, include
-from rest_framework.routers import DefaultRouter
-from . import views
-
-router = DefaultRouter()
-
-# Sales Analytics endpoints
-router.register(r'sales-data', views.SalesDataViewSet, basename='sales-data')
-router.register(r'product-performance', views.ProductPerformanceViewSet, basename='product-performance')
-router.register(r'market-trends', views.MarketTrendsViewSet, basename='market-trends')
-router.register(r'predictions', views.PredictionsViewSet, basename='predictions')
-
-app_name = 'reports'
+from django.urls import path
+from .views import (
+    IncomeReportView, 
+    WalletBalanceReportView, 
+    LoanReportView, 
+    DashboardReportView
+)
 
 urlpatterns = [
-    path('', include(router.urls)),
-] 
+    # Individual endpoints
+    path('income/', IncomeReportView.as_view(), name='income-report'),
+    path('wallet/', WalletBalanceReportView.as_view(), name='wallet-report'),
+    path('loan/', LoanReportView.as_view(), name='loan-report'),
+
+    # Combined dashboard endpoint
+    path('dashboard/', DashboardReportView.as_view(), name='dashboard-report'),
+]

@@ -1,14 +1,14 @@
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
-from . import views
+from .views import LoanProductViewSet, GroupLoanViewSet, GroupLoanRepaymentViewSet
 
 router = DefaultRouter()
-router.register(r'applications', views.LoanApplicationViewSet, basename='loan-application')
-router.register(r'loans', views.LoanViewSet, basename='loan')
-router.register(r'schedules', views.LoanScheduleViewSet, basename='loan-schedule')
-router.register(r'payments', views.LoanPaymentViewSet, basename='loan-payment')
-router.register(r'documents', views.LoanDocumentViewSet, basename='loan-document')
+router.register(r'products', LoanProductViewSet, basename='loan-product')
+router.register(r'group-loans', GroupLoanViewSet, basename='group-loan')
+router.register(r'group-repayments', GroupLoanRepaymentViewSet, basename='group-loan-repayment')
 
 urlpatterns = [
     path('', include(router.urls)),
 ]
+
+

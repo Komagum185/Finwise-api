@@ -42,25 +42,19 @@ INSTALLED_APPS = [
     # Third party apps
     'rest_framework',
     'rest_framework_simplejwt',
+    'rest_framework_simplejwt.token_blacklist', 
     'corsheaders',
     'django_filters',
     
     # Local apps
-    'users',
-    'auth_app',
-    'mses',
-    'markets',
-    'reports',
-    'dashboard',
-    'shared',
-    'wallet',
-    'notifications',
+    'mse',
+    'groups',
     'loans',
-    'kyc',
-    'customers',
-    'payments',
-    'marketplace',
-    'ussd',
+    'markets',
+    'inventory',
+    'reports',
+    'authentication',
+    'wallet',
 ]
 
 MIDDLEWARE = [
@@ -160,7 +154,7 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 # Custom User Model
 AUTH_USER_MODEL = 'users.CustomUser'
-
+AUTH_USER_MODEL = 'authentication.CustomUser'
 # Django REST Framework settings
 REST_FRAMEWORK = {
     'DEFAULT_PERMISSION_CLASSES': [
@@ -203,8 +197,9 @@ else:
 # JWT Settings
 from datetime import timedelta
 SIMPLE_JWT = {
-    'ACCESS_TOKEN_LIFETIME': timedelta(hours=1),
-    'REFRESH_TOKEN_LIFETIME': timedelta(days=7),
+    
+    'ACCESS_TOKEN_LIFETIME': timedelta(minutes=60),
+    'REFRESH_TOKEN_LIFETIME': timedelta(days=1),
     'ROTATE_REFRESH_TOKENS': True,
     'BLACKLIST_AFTER_ROTATION': True,
     'UPDATE_LAST_LOGIN': True,

@@ -18,23 +18,37 @@ from django.contrib import admin
 from django.urls import path, include
 from django.conf import settings
 from django.conf.urls.static import static
+
+from authentication.views import ChangePasswordView, LoginView, RegisterUserView
 from .views import api_root
 
 urlpatterns = [
     path('admin/', admin.site.urls),
     path('api/', api_root, name='api_root'),  # API root endpoint
-    path('api/wallet/', include('wallet.urls')),  # Consolidated from api + finance_app
-    path('api/auth/', include('users.urls')),
-    path('api/mses/', include('mses.urls')),       # Use existing mses app
-    path('api/markets/', include('markets.urls')), # Use existing markets app
-    path('api/reports/', include('reports.urls')),
-    path('api/dashboard/', include('dashboard.urls')),
-    path('api/loans/', include('loans.urls')),     # Loan management system
-    path('api/kyc/', include('kyc.urls')),         # KYC & verification system
-    path('api/customers/', include('customers.urls')),
-    path('api/payments/', include('payments.urls')),
-    path('api/marketplace/', include('marketplace.urls')),  # Customer management system
-    path('api/ussd/', include('ussd.urls')),
+    
+    # Authentication and user management
+    path('api/auth/', include('authentication.urls')),
+
+    # Aliased routes for frontend
+    path('api/mse/self-register/', RegisterUserView.as_view(), name='mse-self-register'),
+    path('api/mse/login/', LoginView.as_view(), name='mse-login'),
+    path('api/mse/change-password/', ChangePasswordView.as_view(), name='mse-change-password'),
+    # Core business modules
+    path('api/mse/', include('mse.urls')),
+    path('api/groups/', include('groups.urls')),
+    path('api/loans/', include('loans.urls')),
+    path('api/reports/', include('reports.urls')), # Reporting system
+    path('api/markets/', include('markets.urls')), # Market operations
+    path('api/inventory/', include('inventory.urls')), # Inventory management
+    # Financial and operational modules
+    path('api/wallet/', include('wallet.urls')),   # Wallet management
+
+    
+    # Support and compliance
+
+    
+    # USSD banking system
+
 ]
 
 # Serve media files in development
