@@ -5,12 +5,69 @@ from django.contrib.auth import authenticate
 from .models import CustomUser
 from .serializers import RegisterUserSerializer, ChangePasswordSerializer, CustomUserSerializer
 
+class IsSuperAdmin(permissions.BasePermission):
+    """
+    Custom permission to only allow super admin users.
+    """
+    
+    def has_permission(self, request, view):
+        return (
+            request.user.is_authenticated and 
+            request.user.role == 'admin' and
+            request.user.is_superuser
+        )
+
+class SuperAdminPartnerRegistrationView(generics.CreateAPIView):
+    """
+    Super admin only endpoint to create partner users.
+    Regular users cannot access this endpoint.
+    """
+    queryset = CustomUser.objects.all()
+    serializer_class = RegisterUserSerializer
+    permission_classes = [IsSuperAdmin]
+
+    def create(self, request, *args, **kwargs):
+        # Ensure only partner users can be created through this endpoint
+        if request.data.get('role') != 'partner':
+            return Response(
+                {'detail': 'This endpoint can only create partner users.'}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        
+        # Create partner user with auto-approval
+        user = serializer.save()
+        user.is_approved = True  # Auto-approve partner users created by super admin
+        user.save()
+
+        data = {
+            'id': user.id,
+            'username': user.username,
+            'role': user.role,
+            'first_name': user.first_name,
+            'last_name': user.last_name,
+            'is_approved': user.is_approved,
+            'message': 'Partner user created successfully by super admin'
+        }
+
+        headers = self.get_success_headers(serializer.data)
+        return Response(data, status=status.HTTP_201_CREATED, headers=headers)
+
 class RegisterUserView(generics.CreateAPIView):
     queryset = CustomUser.objects.all()
     serializer_class = RegisterUserSerializer
     permission_classes = [permissions.AllowAny]  # Anyone can register
 
     def create(self, request, *args, **kwargs):
+        # Prevent partner role creation through public registration
+        if request.data.get('role') == 'partner':
+            return Response(
+                {'detail': 'Partner users can only be created by super administrators.'}, 
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         user = serializer.save()  # Create the user

@@ -28,6 +28,7 @@ urlpatterns = [
     
     # Authentication and user management
     path('api/auth/', include('authentication.urls')),
+    # Super admin can create partners at: /api/auth/super-admin/create-partner/
 
     # Aliased routes for frontend
     path('api/mse/self-register/', RegisterUserView.as_view(), name='mse-self-register'),
@@ -42,7 +43,9 @@ urlpatterns = [
     path('api/inventory/', include('inventory.urls')), # Inventory management
     # Financial and operational modules
     path('api/wallet/', include('wallet.urls')),   # Wallet management
-
+    
+    # Partner Dashboard
+    path('api/partner-dashboard/', include('partner_dashboard.urls')),
     
     # Support and compliance
 
