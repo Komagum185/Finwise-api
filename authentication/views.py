@@ -1,289 +1,552 @@
-from rest_framework import generics, status, permissions
-from rest_framework.response import Response
+from rest_framework import status, generics
 from rest_framework.decorators import api_view, permission_classes
+from rest_framework.permissions import IsAuthenticated, IsAdminUser
+from rest_framework.response import Response
 from rest_framework_simplejwt.tokens import RefreshToken
 from django.contrib.auth import authenticate
 from django.db import transaction
 from .models import CustomUser
 from .serializers import (
     UserSerializer, UserDetailSerializer, UserCreateSerializer, UserUpdateSerializer,
-    ChangePasswordSerializer, LoginSerializer, UserSummarySerializer, AgentAssignmentSerializer
+    ChangePasswordSerializer, LoginSerializer, UserSummarySerializer, 
+    AgentAssignmentSerializer, UserDashboardDataSerializer
 )
-from partner_dashboard.permissions import (
-    IsSuperAdmin, CanManageUsers, CanManageMSE, IsOwnerOrReadOnly
-)
-from django.db.models import Q
-
+from django.db import models
 
 class RegisterUserView(generics.CreateAPIView):
-    """Register a new user - only super admin can create users with certain roles"""
-    
+    """Register new user - only super admins can create certain roles"""
     serializer_class = UserCreateSerializer
-    permission_classes = [IsSuperAdmin]
+    permission_classes = [IsAuthenticated]
     
     def create(self, request, *args, **kwargs):
-        """Create user with role validation"""
+        """Create new user with role validation"""
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         
-        # Only super admin can create users with admin/agent roles
-        role = serializer.validated_data.get('role')
-        if role in ['super_admin', 'agent'] and not request.user.is_super_admin:
+        # Check permissions for creating different roles
+        user_data = serializer.validated_data
+        
+        # Only super admins can create super admin users
+        if user_data.get('is_super_admin') and not request.user.is_super_admin:
             return Response(
-                {'error': 'Only super admin can create admin and agent users'},
+                {"error": "Only super admins can create super admin users"},
                 status=status.HTTP_403_FORBIDDEN
             )
         
+        # Only super admins and agents can create MSE users
+        if user_data.get('is_mse') and not (request.user.is_super_admin or request.user.is_agent):
+            return Response(
+                {"error": "Only super admins and agents can create MSE users"},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        # Only super admins can create partner users
+        if user_data.get('is_partner') and not request.user.is_super_admin:
+            return Response(
+                {"error": "Only super admins can create partner users"},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        # Create the user
         user = serializer.save()
         
         return Response({
-            'message': 'User created successfully',
-            'user': UserSerializer(user).data
+            "message": "User created successfully",
+            "user": UserSerializer(user).data
         }, status=status.HTTP_201_CREATED)
+        
+        
+from rest_framework import status, generics
+from rest_framework.decorators import api_view, permission_classes
+from rest_framework.permissions import IsAuthenticated, IsAdminUser
+from rest_framework.response import Response
+from rest_framework_simplejwt.tokens import RefreshToken
+from django.contrib.auth import authenticate
+from django.db import transaction
+from .models import CustomUser
+from .serializers import (
+    UserSerializer, UserDetailSerializer, UserCreateSerializer, UserUpdateSerializer,
+    ChangePasswordSerializer, LoginSerializer, UserSummarySerializer, 
+    AgentAssignmentSerializer, UserDashboardDataSerializer
+)
+from django.db import models
 
+class RegisterUserView(generics.CreateAPIView):
+    """Register new user - only super admins can create certain roles"""
+    serializer_class = UserCreateSerializer
+    permission_classes = []  # Allow registration without authentication
+    
+    def create(self, request, *args, **kwargs):
+        """Create new user with role validation"""
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        
+        # Check permissions for creating different roles
+        user_data = serializer.validated_data
+        
+        # For unauthenticated registration, only allow basic roles
+        if not request.user.is_authenticated:
+            # Unauthenticated users can only create basic MSE users
+            if user_data.get('is_super_admin') or user_data.get('is_agent') or user_data.get('is_partner'):
+                return Response(
+                    {"error": "Unauthenticated users can only create basic MSE accounts"},
+                    status=status.HTTP_403_FORBIDDEN
+                )
+            # Default to MSE if no role specified
+            if not any([user_data.get('is_super_admin'), user_data.get('is_agent'), user_data.get('is_mse'), user_data.get('is_partner')]):
+                user_data['is_mse'] = True
+        else:
+            # Authenticated users follow role-based permissions
+            # Only super admins can create super admin users
+            if user_data.get('is_super_admin') and not request.user.is_super_admin:
+                return Response(
+                    {"error": "Only super admins can create super admin users"},
+                    status=status.HTTP_403_FORBIDDEN
+                )
+            
+            # Only super admins and agents can create MSE users
+            if user_data.get('is_mse') and not (request.user.is_super_admin or request.user.is_agent):
+                return Response(
+                    {"error": "Only super admins and agents can create MSE users"},
+                    status=status.HTTP_403_FORBIDDEN
+                )
+            
+            # Only super admins can create partner users
+            if user_data.get('is_partner') and not request.user.is_super_admin:
+                return Response(
+                    {"error": "Only super admins can create partner users"},
+                    status=status.HTTP_403_FORBIDDEN
+                )
+        
+        # Create the user
+        user = serializer.save()
+        
+        return Response({
+            "message": "User created successfully",
+            "user": UserSerializer(user).data
+        }, status=status.HTTP_201_CREATED)
 
 class LoginView(generics.GenericAPIView):
     """User login view"""
-    
     serializer_class = LoginSerializer
-    permission_classes = [permissions.AllowAny]
+    permission_classes = []  # No authentication required for login
     
     def post(self, request):
+        """Handle user login"""
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         
-        username = serializer.validated_data['username']
-        password = serializer.validated_data['password']
+        user = serializer.validated_data['user']
         
-        user = authenticate(username=username, password=password)
+        # Generate JWT tokens
+        refresh = RefreshToken.for_user(user)
         
-        if user:
-            if not user.is_approved and user.role != 'super_admin':
-                return Response({
-                    'error': 'Account not approved. Please contact administrator.'
-                }, status=status.HTTP_403_FORBIDDEN)
-            
-            refresh = RefreshToken.for_user(user)
-            
-            return Response({
-                'refresh': str(refresh),
-                'access': str(refresh.access_token),
-                'user': UserSerializer(user).data
-            })
-        else:
-            return Response({
-                'error': 'Invalid credentials'
-            }, status=status.HTTP_401_UNAUTHORIZED)
-
+        # Update first login flag
+        if user.first_login:
+            user.first_login = False
+            user.save()
+        
+        return Response({
+            "message": "Login successful",
+            "user": UserDashboardDataSerializer(user).data,
+            "tokens": {
+                "access": str(refresh.access_token),
+                "refresh": str(refresh)
+            }
+        })
 
 class ChangePasswordView(generics.UpdateAPIView):
     """Change user password"""
-    
     serializer_class = ChangePasswordSerializer
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [IsAuthenticated]
     
     def update(self, request, *args, **kwargs):
-        user = request.user
+        """Update user password"""
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         
-        # Verify old password
-        if not user.check_password(serializer.validated_data['old_password']):
-            return Response({
-                'error': 'Current password is incorrect'
-            }, status=status.HTTP_400_BAD_REQUEST)
-        
-        # Set new password
+        user = request.user
         user.set_password(serializer.validated_data['new_password'])
-        user.first_login = False
         user.save()
         
-        return Response({
-            'message': 'Password changed successfully'
-        })
-
+        return Response({"message": "Password changed successfully"})
 
 class UserListView(generics.ListAPIView):
-    """List users based on role permissions"""
-    
+    """List users - filtered by permissions"""
     serializer_class = UserSummarySerializer
-    permission_classes = [CanManageUsers]
+    permission_classes = [IsAuthenticated]
     
     def get_queryset(self):
+        """Filter users based on permissions"""
         user = self.request.user
         
         if user.is_super_admin:
-            # Super admin can see all users
+            # Super admins can see all users
             return CustomUser.objects.all()
-        elif user.role == 'agent':
-            # Agent can see assigned users and other agents
+        elif user.is_agent:
+            # Agents can see their assigned users and other agents
             return CustomUser.objects.filter(
-                Q(assigned_agent=user) | Q(role='agent')
+                models.Q(assigned_agent=user) | models.Q(is_agent=True)
             )
-        
-        return CustomUser.objects.none()
-
+        else:
+            # Other users can only see themselves
+            return CustomUser.objects.filter(id=user.id)
 
 class UserDetailView(generics.RetrieveUpdateDestroyAPIView):
-    """Retrieve, update, or delete a user"""
-    
+    """User detail view with CRUD operations"""
     serializer_class = UserDetailSerializer
-    permission_classes = [CanManageUsers, IsOwnerOrReadOnly]
+    permission_classes = [IsAuthenticated]
+    queryset = CustomUser.objects.all()
     
-    def get_queryset(self):
+    def get_object(self):
+        """Get user object with permission check"""
+        obj = super().get_object()
         user = self.request.user
         
-        if user.is_super_admin:
-            return CustomUser.objects.all()
-        elif user.role == 'agent':
-            return CustomUser.objects.filter(
-                Q(assigned_agent=user) | Q(role='agent')
+        # Check if user can view this object
+        if not user.can_manage_user(obj):
+            raise PermissionError("You don't have permission to view this user")
+        
+        return obj
+    
+    def update(self, request, *args, **kwargs):
+        """Update user with permission check"""
+        obj = self.get_object()
+        user = request.user
+        
+        # Check if user can update this object
+        if not user.can_manage_user(obj):
+            return Response(
+                {"error": "You don't have permission to update this user"},
+                status=status.HTTP_403_FORBIDDEN
             )
         
-        return CustomUser.objects.none()
-
+        return super().update(request, *args, **kwargs)
+    
+    def destroy(self, request, *args, **kwargs):
+        """Delete user with permission check"""
+        obj = self.get_object()
+        user = request.user
+        
+        # Only super admins can delete users
+        if not user.is_super_admin:
+            return Response(
+                {"error": "Only super admins can delete users"},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        return super().destroy(request, *args, **kwargs)
 
 class AgentListView(generics.ListAPIView):
     """List all agents"""
-    
-    serializer_class = AgentAssignmentSerializer
-    permission_classes = [CanManageUsers]
-    
-    def get_queryset(self):
-        return CustomUser.objects.filter(role='agent')
-
-
-class AgentDetailView(generics.RetrieveUpdateAPIView):
-    """Retrieve or update an agent"""
-    
-    serializer_class = AgentAssignmentSerializer
-    permission_classes = [CanManageUsers]
+    serializer_class = UserSummarySerializer
+    permission_classes = [IsAuthenticated]
     
     def get_queryset(self):
-        return CustomUser.objects.filter(role='agent')
+        """Get all agents"""
+        return CustomUser.objects.filter(is_agent=True)
 
+class AgentDetailView(generics.RetrieveAPIView):
+    """Agent detail view"""
+    serializer_class = UserDetailSerializer
+    permission_classes = [IsAuthenticated]
+    queryset = CustomUser.objects.filter(is_agent=True)
 
 class AssignUserToAgentView(generics.UpdateAPIView):
-    """Assign a user to an agent"""
-    
-    serializer_class = UserUpdateSerializer
-    permission_classes = [CanManageUsers]
-    
-    def get_queryset(self):
-        user = self.request.user
-        
-        if user.is_super_admin:
-            return CustomUser.objects.filter(role__in=['mse', 'partner'])
-        elif user.role == 'agent':
-            return CustomUser.objects.filter(role__in=['mse', 'partner'])
-        
-        return CustomUser.objects.none()
+    """Assign user to an agent"""
+    serializer_class = AgentAssignmentSerializer
+    permission_classes = [IsAuthenticated]
+    queryset = CustomUser.objects.all()
     
     def update(self, request, *args, **kwargs):
+        """Assign user to agent"""
         user = self.get_object()
-        agent_id = request.data.get('assigned_agent')
+        current_user = request.user
         
-        if agent_id:
-            try:
-                agent = CustomUser.objects.get(id=agent_id, role='agent')
-                user.assigned_agent = agent
-                user.save()
-                
-                return Response({
-                    'message': f'User assigned to agent {agent.first_name} {agent.last_name}'
-                })
-            except CustomUser.DoesNotExist:
-                return Response({
-                    'error': 'Invalid agent ID'
-                }, status=status.HTTP_400_BAD_REQUEST)
-        
-        return Response({
-            'error': 'Agent ID is required'
-        }, status=status.HTTP_400_BAD_REQUEST)
-
-
-class ApproveUserView(generics.UpdateAPIView):
-    """Approve a user account"""
-    
-    serializer_class = UserUpdateSerializer
-    permission_classes = [CanManageUsers]
-    
-    def get_queryset(self):
-        user = self.request.user
-        
-        if user.is_super_admin:
-            return CustomUser.objects.filter(is_approved=False)
-        elif user.role == 'agent':
-            return CustomUser.objects.filter(
-                assigned_agent=user,
-                is_approved=False
+        # Check permissions
+        if not (current_user.is_super_admin or current_user.is_agent):
+            return Response(
+                {"error": "Only super admins and agents can assign users"},
+                status=status.HTTP_403_FORBIDDEN
             )
         
-        return CustomUser.objects.none()
+        serializer = self.get_serializer(user, data=request.data)
+        serializer.is_valid(raise_exception=True)
+        
+        # Update assigned agent
+        user.assigned_agent = serializer.validated_data.get('assigned_agent')
+        user.save()
+        
+        return Response({
+            "message": "User assigned to agent successfully",
+            "user": UserDetailSerializer(user).data
+        })
+
+class ApproveUserView(generics.UpdateAPIView):
+    """Approve user account"""
+    serializer_class = UserSerializer
+    permission_classes = [IsAuthenticated]
+    queryset = CustomUser.objects.all()
     
     def update(self, request, *args, **kwargs):
+        """Approve user"""
         user = self.get_object()
+        current_user = request.user
+        
+        # Check permissions
+        if not (current_user.is_super_admin or current_user.is_agent):
+            return Response(
+                {"error": "Only super admins and agents can approve users"},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        # Approve user
         user.is_approved = True
         user.save()
         
         return Response({
-            'message': f'User {user.username} approved successfully'
+            "message": "User approved successfully",
+            "user": UserSerializer(user).data
         })
-
 
 class UserProfileView(generics.RetrieveUpdateAPIView):
     """User profile view - users can view and update their own profile"""
-    
-    serializer_class = UserSerializer
-    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = UserDetailSerializer
+    permission_classes = [IsAuthenticated]
     
     def get_object(self):
+        """Return current user"""
         return self.request.user
 
-
 @api_view(['GET'])
-@permission_classes([permissions.IsAuthenticated])
+@permission_classes([IsAuthenticated])
 def user_dashboard_data(request):
-    """Get user-specific dashboard data based on role"""
-    
+    """Get user dashboard data based on their roles and capabilities"""
     user = request.user
     
-    if user.role == 'super_admin':
-        # Super admin dashboard data
-        data = {
-            'total_users': CustomUser.objects.count(),
-            'total_mse_users': CustomUser.objects.filter(role='mse').count(),
-            'total_agents': CustomUser.objects.filter(role='agent').count(),
-            'total_partners': CustomUser.objects.filter(role='partner').count(),
-            'pending_approvals': CustomUser.objects.filter(is_approved=False).count(),
-        }
+    # Get accessible dashboards
+    accessible_dashboards = user.get_accessible_dashboards()
     
-    elif user.role == 'agent':
-        # Agent dashboard data
-        assigned_users = user.assigned_mse_users.all()
-        data = {
-            'assigned_users_count': assigned_users.count(),
-            'assigned_mse_count': assigned_users.filter(role='mse').count(),
-            'assigned_partner_count': assigned_users.filter(role='partner').count(),
-            'pending_approvals': assigned_users.filter(is_approved=False).count(),
-        }
+    # Get role-specific data
+    dashboard_data = {
+        "user": UserDashboardDataSerializer(user).data,
+        "accessible_dashboards": accessible_dashboards,
+        "capabilities": user.capabilities,
+        "has_multiple_roles": user.has_multiple_roles,
+        "primary_role": user.primary_role
+    }
     
-    elif user.role == 'mse':
-        # MSE dashboard data
-        data = {
-            'mse_name': user.mse_name,
-            'is_approved': user.is_approved,
-            'assigned_agent': user.assigned_agent.first_name if user.assigned_agent else None,
-        }
+    # Add role-specific information
+    if user.is_agent:
+        assigned_users = user.get_assigned_users()
+        dashboard_data["assigned_users_count"] = assigned_users.count()
+        dashboard_data["assigned_users"] = UserSummarySerializer(assigned_users, many=True).data
     
-    elif user.role == 'partner':
-        # Partner dashboard data
-        data = {
-            'partner_institution': user.partner_institution,
-            'assigned_agent': user.assigned_agent.first_name if user.assigned_agent else None,
-        }
+    if user.is_mse:
+        dashboard_data["mse_name"] = user.mse_name
+        if user.assigned_agent:
+            dashboard_data["assigned_agent"] = UserSummarySerializer(user.assigned_agent).data
     
-    else:
-        data = {}
+    if user.is_partner:
+        dashboard_data["partner_institution"] = user.partner_institution
     
-    return Response(data)
+    return Response(dashboard_data)
+
+
+
+class ChangePasswordView(generics.UpdateAPIView):
+    """Change user password"""
+    serializer_class = ChangePasswordSerializer
+    permission_classes = [IsAuthenticated]
+    
+    def update(self, request, *args, **kwargs):
+        """Update user password"""
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        
+        user = request.user
+        user.set_password(serializer.validated_data['new_password'])
+        user.save()
+        
+        return Response({"message": "Password changed successfully"})
+
+class UserListView(generics.ListAPIView):
+    """List users - filtered by permissions"""
+    serializer_class = UserSummarySerializer
+    permission_classes = [IsAuthenticated]
+    
+    def get_queryset(self):
+        """Filter users based on permissions"""
+        user = self.request.user
+        
+        if user.is_super_admin:
+            # Super admins can see all users
+            return CustomUser.objects.all()
+        elif user.is_agent:
+            # Agents can see their assigned users and other agents
+            return CustomUser.objects.filter(
+                models.Q(assigned_agent=user) | models.Q(is_agent=True)
+            )
+        else:
+            # Other users can only see themselves
+            return CustomUser.objects.filter(id=user.id)
+
+class UserDetailView(generics.RetrieveUpdateDestroyAPIView):
+    """User detail view with CRUD operations"""
+    serializer_class = UserDetailSerializer
+    permission_classes = [IsAuthenticated]
+    queryset = CustomUser.objects.all()
+    
+    def get_object(self):
+        """Get user object with permission check"""
+        obj = super().get_object()
+        user = self.request.user
+        
+        # Check if user can view this object
+        if not user.can_manage_user(obj):
+            raise PermissionError("You don't have permission to view this user")
+        
+        return obj
+    
+    def update(self, request, *args, **kwargs):
+        """Update user with permission check"""
+        obj = self.get_object()
+        user = request.user
+        
+        # Check if user can update this object
+        if not user.can_manage_user(obj):
+            return Response(
+                {"error": "You don't have permission to update this user"},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        return super().update(request, *args, **kwargs)
+    
+    def destroy(self, request, *args, **kwargs):
+        """Delete user with permission check"""
+        obj = self.get_object()
+        user = request.user
+        
+        # Only super admins can delete users
+        if not user.is_super_admin:
+            return Response(
+                {"error": "Only super admins can delete users"},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        return super().destroy(request, *args, **kwargs)
+
+class AgentListView(generics.ListAPIView):
+    """List all agents"""
+    serializer_class = UserSummarySerializer
+    permission_classes = [IsAuthenticated]
+    
+    def get_queryset(self):
+        """Get all agents"""
+        return CustomUser.objects.filter(is_agent=True)
+
+class AgentDetailView(generics.RetrieveAPIView):
+    """Agent detail view"""
+    serializer_class = UserDetailSerializer
+    permission_classes = [IsAuthenticated]
+    queryset = CustomUser.objects.filter(is_agent=True)
+
+class AssignUserToAgentView(generics.UpdateAPIView):
+    """Assign user to an agent"""
+    serializer_class = AgentAssignmentSerializer
+    permission_classes = [IsAuthenticated]
+    queryset = CustomUser.objects.all()
+    
+    def update(self, request, *args, **kwargs):
+        """Assign user to agent"""
+        user = self.get_object()
+        current_user = request.user
+        
+        # Check permissions
+        if not (current_user.is_super_admin or current_user.is_agent):
+            return Response(
+                {"error": "Only super admins and agents can assign users"},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        serializer = self.get_serializer(user, data=request.data)
+        serializer.is_valid(raise_exception=True)
+        
+        # Update assigned agent
+        user.assigned_agent = serializer.validated_data.get('assigned_agent')
+        user.save()
+        
+        return Response({
+            "message": "User assigned to agent successfully",
+            "user": UserDetailSerializer(user).data
+        })
+
+class ApproveUserView(generics.UpdateAPIView):
+    """Approve user account"""
+    serializer_class = UserSerializer
+    permission_classes = [IsAuthenticated]
+    queryset = CustomUser.objects.all()
+    
+    def update(self, request, *args, **kwargs):
+        """Approve user"""
+        user = self.get_object()
+        current_user = request.user
+        
+        # Check permissions
+        if not (current_user.is_super_admin or current_user.is_agent):
+            return Response(
+                {"error": "Only super admins and agents can approve users"},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        # Approve user
+        user.is_approved = True
+        user.save()
+        
+        return Response({
+            "message": "User approved successfully",
+            "user": UserSerializer(user).data
+        })
+
+class UserProfileView(generics.RetrieveUpdateAPIView):
+    """User profile view - users can view and update their own profile"""
+    serializer_class = UserDetailSerializer
+    permission_classes = [IsAuthenticated]
+    
+    def get_object(self):
+        """Return current user"""
+        return self.request.user
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def user_dashboard_data(request):
+    """Get user dashboard data based on their roles and capabilities"""
+    user = request.user
+    
+    # Get accessible dashboards
+    accessible_dashboards = user.get_accessible_dashboards()
+    
+    # Get role-specific data
+    dashboard_data = {
+        "user": UserDashboardDataSerializer(user).data,
+        "accessible_dashboards": accessible_dashboards,
+        "capabilities": user.capabilities,
+        "has_multiple_roles": user.has_multiple_roles,
+        "primary_role": user.primary_role
+    }
+    
+    # Add role-specific information
+    if user.is_agent:
+        assigned_users = user.get_assigned_users()
+        dashboard_data["assigned_users_count"] = assigned_users.count()
+        dashboard_data["assigned_users"] = UserSummarySerializer(assigned_users, many=True).data
+    
+    if user.is_mse:
+        dashboard_data["mse_name"] = user.mse_name
+        if user.assigned_agent:
+            dashboard_data["assigned_agent"] = UserSummarySerializer(user.assigned_agent).data
+    
+    if user.is_partner:
+        dashboard_data["partner_institution"] = user.partner_institution
+    
+    return Response(dashboard_data)

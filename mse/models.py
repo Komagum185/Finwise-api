@@ -34,7 +34,7 @@ class MSE(models.Model):
     owner = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='mse_accounts')
     assigned_agent = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
                                      related_name='assigned_mses', help_text="Agent assigned to manage this MSE")
-    
+
     # Basic information
     first_name = models.CharField(max_length=100)
     last_name = models.CharField(max_length=100)
