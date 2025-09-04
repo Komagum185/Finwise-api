@@ -1,6 +1,11 @@
 from rest_framework import serializers
 from django.contrib.auth import authenticate
 from django.contrib.auth.password_validation import validate_password
+from django.contrib.auth.tokens import default_token_generator
+from django.utils.http import urlsafe_base64_encode, urlsafe_base64_decode
+from django.utils.encoding import force_bytes, force_str
+from django.core.mail import send_mail
+from django.conf import settings
 from .models import CustomUser
 
 class UserSerializer(serializers.ModelSerializer):
@@ -174,7 +179,7 @@ class LoginSerializer(serializers.Serializer):
                 raise serializers.ValidationError("Invalid credentials")
             if not user.is_active:
                 raise serializers.ValidationError("User account is disabled")
-            if not user.is_approved:
+            if not user.is_approved and not user.is_super_admin:
                 raise serializers.ValidationError("User account is not approved")
             
             attrs['user'] = user
@@ -236,7 +241,7 @@ class UserDashboardDataSerializer(serializers.ModelSerializer):
         model = CustomUser
         fields = [
             'id', 'username', 'first_name', 'last_name', 'email',
-            'is_super_admin', 'is_agent', 'is_mse', 'is_partner',
+            'is_super_admin', 'is_agent', 'is_mse', 'is_partner', 'is_approved',
             'roles_display', 'accessible_dashboards', 'capabilities',
             'mse_name', 'partner_institution'
         ]
@@ -257,3 +262,102 @@ class UserDashboardDataSerializer(serializers.ModelSerializer):
     def get_accessible_dashboards(self, obj):
         """Get list of dashboards user can access"""
         return obj.get_accessible_dashboards()
+
+
+class PasswordResetSerializer(serializers.Serializer):
+    """Serializer for password reset request"""
+    email = serializers.EmailField()
+    
+    def validate_email(self, value):
+        """Validate that email exists in the system"""
+        try:
+            user = CustomUser.objects.get(email=value)
+            if not user.is_active:
+                raise serializers.ValidationError("User account is disabled")
+        except CustomUser.DoesNotExist:
+            raise serializers.ValidationError("No user found with this email address")
+        return value
+    
+    def save(self):
+        """Send password reset email"""
+        email = self.validated_data['email']
+        user = CustomUser.objects.get(email=email)
+        
+        # Generate reset token
+        token = default_token_generator.make_token(user)
+        uid = urlsafe_base64_encode(force_bytes(user.pk))
+        
+        # Create reset URL (you can customize this based on your frontend URL)
+        reset_url = f"{getattr(settings, 'FRONTEND_URL', 'http://localhost:3000')}/reset-password?token={token}&uid={uid}"
+        
+        # Email content
+        subject = "Password Reset Request - FinWise"
+        message = f"""
+        Hello {user.first_name or user.username},
+        
+        You have requested to reset your password for your FinWise account.
+        
+        Click the link below to reset your password:
+        {reset_url}
+        
+        If you did not request this password reset, please ignore this email.
+        
+        This link will expire in 24 hours for security reasons.
+        
+        Best regards,
+        FinWise Team
+        """
+        
+        # Send email
+        try:
+            send_mail(
+                subject=subject,
+                message=message,
+                from_email=getattr(settings, 'DEFAULT_FROM_EMAIL', 'noreply@finwise.com'),
+                recipient_list=[email],
+                fail_silently=False
+            )
+        except Exception as e:
+            raise serializers.ValidationError(f"Failed to send email: {str(e)}")
+        
+        return user
+
+
+class PasswordResetConfirmSerializer(serializers.Serializer):
+    """Serializer for password reset confirmation"""
+    uid = serializers.CharField()
+    token = serializers.CharField()
+    new_password = serializers.CharField(validators=[validate_password])
+    new_password_confirm = serializers.CharField()
+    
+    def validate(self, attrs):
+        """Validate password reset data"""
+        # Check password confirmation
+        if attrs['new_password'] != attrs['new_password_confirm']:
+            raise serializers.ValidationError("Passwords don't match")
+        
+        # Validate token and uid
+        try:
+            uid = force_str(urlsafe_base64_decode(attrs['uid']))
+            user = CustomUser.objects.get(pk=uid)
+        except (TypeError, ValueError, OverflowError, CustomUser.DoesNotExist):
+            raise serializers.ValidationError("Invalid reset link")
+        
+        if not default_token_generator.check_token(user, attrs['token']):
+            raise serializers.ValidationError("Invalid or expired reset link")
+        
+        if not user.is_active:
+            raise serializers.ValidationError("User account is disabled")
+        
+        attrs['user'] = user
+        return attrs
+    
+    def save(self):
+        """Reset user password"""
+        user = self.validated_data['user']
+        new_password = self.validated_data['new_password']
+        
+        user.set_password(new_password)
+        user.save()
+        
+        return user

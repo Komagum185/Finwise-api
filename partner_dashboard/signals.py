@@ -11,7 +11,7 @@ def create_partner_dashboard_on_user_creation(sender, instance, created, **kwarg
     """
     Create a partner dashboard record when a new partner user is created
     """
-    if created and instance.role == 'partner':
+    if created and instance.is_partner:
         PartnerDashboard.objects.create(
             partner=instance,
             access_count=0

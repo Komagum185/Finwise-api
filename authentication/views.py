@@ -9,7 +9,8 @@ from .models import CustomUser
 from .serializers import (
     UserSerializer, UserDetailSerializer, UserCreateSerializer, UserUpdateSerializer,
     ChangePasswordSerializer, LoginSerializer, UserSummarySerializer, 
-    AgentAssignmentSerializer, UserDashboardDataSerializer
+    AgentAssignmentSerializer, UserDashboardDataSerializer, PasswordResetSerializer,
+    PasswordResetConfirmSerializer
 )
 from django.db import models
 
@@ -67,7 +68,8 @@ from .models import CustomUser
 from .serializers import (
     UserSerializer, UserDetailSerializer, UserCreateSerializer, UserUpdateSerializer,
     ChangePasswordSerializer, LoginSerializer, UserSummarySerializer, 
-    AgentAssignmentSerializer, UserDashboardDataSerializer
+    AgentAssignmentSerializer, UserDashboardDataSerializer, PasswordResetSerializer,
+    PasswordResetConfirmSerializer
 )
 from django.db import models
 
@@ -353,6 +355,52 @@ def user_dashboard_data(request):
     return Response(dashboard_data)
 
 
+class PasswordResetView(generics.GenericAPIView):
+    """Send password reset email"""
+    serializer_class = PasswordResetSerializer
+    permission_classes = []  # No authentication required
+    
+    def post(self, request):
+        """Send password reset email"""
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        
+        try:
+            user = serializer.save()
+            return Response({
+                "message": "Password reset email sent successfully",
+                "detail": "If an account with this email exists, you will receive a password reset link."
+            }, status=status.HTTP_200_OK)
+        except Exception as e:
+            return Response({
+                "error": "Failed to send password reset email",
+                "detail": str(e)
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+class PasswordResetConfirmView(generics.GenericAPIView):
+    """Confirm password reset with token"""
+    serializer_class = PasswordResetConfirmSerializer
+    permission_classes = []  # No authentication required
+    
+    def post(self, request):
+        """Reset password with token"""
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        
+        try:
+            user = serializer.save()
+            return Response({
+                "message": "Password reset successfully",
+                "detail": "Your password has been updated. You can now login with your new password."
+            }, status=status.HTTP_200_OK)
+        except Exception as e:
+            return Response({
+                "error": "Failed to reset password",
+                "detail": str(e)
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
 
 class ChangePasswordView(generics.UpdateAPIView):
     """Change user password"""
@@ -550,3 +598,49 @@ def user_dashboard_data(request):
         dashboard_data["partner_institution"] = user.partner_institution
     
     return Response(dashboard_data)
+
+
+class PasswordResetView(generics.GenericAPIView):
+    """Send password reset email"""
+    serializer_class = PasswordResetSerializer
+    permission_classes = []  # No authentication required
+    
+    def post(self, request):
+        """Send password reset email"""
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        
+        try:
+            user = serializer.save()
+            return Response({
+                "message": "Password reset email sent successfully",
+                "detail": "If an account with this email exists, you will receive a password reset link."
+            }, status=status.HTTP_200_OK)
+        except Exception as e:
+            return Response({
+                "error": "Failed to send password reset email",
+                "detail": str(e)
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+class PasswordResetConfirmView(generics.GenericAPIView):
+    """Confirm password reset with token"""
+    serializer_class = PasswordResetConfirmSerializer
+    permission_classes = []  # No authentication required
+    
+    def post(self, request):
+        """Reset password with token"""
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        
+        try:
+            user = serializer.save()
+            return Response({
+                "message": "Password reset successfully",
+                "detail": "Your password has been updated. You can now login with your new password."
+            }, status=status.HTTP_200_OK)
+        except Exception as e:
+            return Response({
+                "error": "Failed to reset password",
+                "detail": str(e)
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)

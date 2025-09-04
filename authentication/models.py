@@ -192,6 +192,19 @@ class CustomUser(AbstractUser):
             return 'partner'
         return 'user'
     
+    @property 
+    def role(self):
+        """Backward compatibility property for old role system"""
+        if self.is_super_admin:
+            return 'super_admin'
+        elif self.is_agent:
+            return 'agent'
+        elif self.is_mse:
+            return 'mse'
+        elif self.is_partner:
+            return 'partner'
+        return None
+    
     # Capability checking methods
     def has_capability(self, capability):
         """Check if user has a specific capability"""

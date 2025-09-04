@@ -2,7 +2,7 @@ from django.urls import path
 from .views import (
     RegisterUserView, LoginView, ChangePasswordView, UserListView, UserDetailView,
     AgentListView, AgentDetailView, AssignUserToAgentView, ApproveUserView,
-    UserProfileView, user_dashboard_data
+    UserProfileView, user_dashboard_data, PasswordResetView, PasswordResetConfirmView
 )
 
 urlpatterns = [
@@ -10,6 +10,10 @@ urlpatterns = [
     path('register/', RegisterUserView.as_view(), name='register'),
     path('login/', LoginView.as_view(), name='login'),
     path('change-password/', ChangePasswordView.as_view(), name='change-password'),
+    
+    # Password reset
+    path('password-reset/', PasswordResetView.as_view(), name='password-reset'),
+    path('password-reset/confirm/', PasswordResetConfirmView.as_view(), name='password-reset-confirm'),
     
     # User management (Super Admin and Agent)
     path('users/', UserListView.as_view(), name='user-list'),
