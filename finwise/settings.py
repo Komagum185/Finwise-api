@@ -24,9 +24,9 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 SECRET_KEY = config('SECRET_KEY', default='django-insecure-6+m*e6i7f&x9cuc1+j34%e0^h8$jm_x^=5pnn1^qomxu073ykj')
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = config('DEBUG', default=True, cast=bool)
+DEBUG = config('DEBUG', default=False, cast=bool)
 
-ALLOWED_HOSTS = ['localhost', '127.0.0.1', 'testserver']
+ALLOWED_HOSTS = ['localhost', '127.0.0.1', 'finwisecoreapi.questdigito.com']
 
 
 # Application definition
@@ -154,7 +154,6 @@ MEDIA_ROOT = BASE_DIR / 'media'
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 # Custom User Model
-AUTH_USER_MODEL = 'users.CustomUser'
 AUTH_USER_MODEL = 'authentication.CustomUser'
 # Django REST Framework settings
 REST_FRAMEWORK = {
@@ -179,13 +178,12 @@ if not DEBUG:
     # Production: Enable smart rate limiting for security
     REST_FRAMEWORK.update({
         'DEFAULT_THROTTLE_CLASSES': [
-            'users.throttling.APIRateThrottle',
-            'users.throttling.BurstRateThrottle',
+            'rest_framework.throttling.AnonRateThrottle',
+            'rest_framework.throttling.UserRateThrottle',
         ],
         'DEFAULT_THROTTLE_RATES': {
-            'api': '1000/hour',      # General API usage
-            'burst': '100/minute',   # Short-term bursts
-            'login': '20/minute',    # Login attempts
+            'anon': '100/hour',      # Anonymous users
+            'user': '1000/hour',     # Authenticated users
         }
     })
 else:
@@ -233,7 +231,19 @@ CORS_ALLOWED_ORIGINS = [
     'http://127.0.0.1:5173',
     'http://localhost:5174',
     'http://127.0.0.1:5174',
+    'https://finwise.questdigito.com',
+    'https://www.finwise.questdigito.com',
+
 ]
+CSRF_TRUSTED_ORIGINS = [
+    'https://finwisecoreapi.questdigito.com',
+    'https://www.finwisecoreapi.questdigito.com',
+]
+
+# Other production-specific settings
+SECURE_SSL_REDIRECT = True
+SESSION_COOKIE_SECURE = True
+CSRF_COOKIE_SECURE = True
 
 CORS_ALLOW_CREDENTIALS = True
 
