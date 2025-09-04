@@ -8,7 +8,7 @@ from django.views.decorators.csrf import csrf_exempt
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404
 
-from .permissions import FullPartnerAccess, CanExport
+from .permissions import FullAccess, CanExport
 from .serializers import (
     SummarySerializer, GraphDataSerializer, DigitizationReportSerializer,
     LoanReportSerializer, DigitalServiceReportSerializer, FilterSerializer
@@ -25,7 +25,7 @@ from .models import PartnerDashboard
 
 
 @api_view(['GET'])
-@permission_classes([IsAuthenticated, FullPartnerAccess])
+@permission_classes([FullAccess])
 def dashboard_summaries(request):
     """
     Get dashboard summary metrics
@@ -60,7 +60,7 @@ def dashboard_summaries(request):
 
 
 @api_view(['GET'])
-@permission_classes([IsAuthenticated, FullPartnerAccess])
+@permission_classes([FullAccess])
 def dashboard_graphs(request):
     """
     Get data for charts and graphs
@@ -86,7 +86,7 @@ def dashboard_graphs(request):
 
 
 @api_view(['GET'])
-@permission_classes([IsAuthenticated, FullPartnerAccess])
+@permission_classes([FullAccess])
 def digitization_report(request):
     """
     Get digitization report data
@@ -127,7 +127,7 @@ def digitization_report(request):
 
 
 @api_view(['GET'])
-@permission_classes([IsAuthenticated, FullPartnerAccess])
+@permission_classes([FullAccess])
 def loan_report(request):
     """
     Get loan report data
@@ -168,7 +168,7 @@ def loan_report(request):
 
 
 @api_view(['GET'])
-@permission_classes([IsAuthenticated, FullPartnerAccess])
+@permission_classes([FullAccess])
 def digital_service_report(request):
     """
     Get digital service report data
@@ -209,7 +209,7 @@ def digital_service_report(request):
 
 
 @api_view(['GET'])
-@permission_classes([IsAuthenticated, FullPartnerAccess, CanExport])
+@permission_classes([FullAccess, CanExport])
 def export_report(request, report_type=None):
     """
     Export report data in CSV or PDF format
@@ -281,7 +281,7 @@ def export_report(request, report_type=None):
 
 
 @api_view(['GET'])
-@permission_classes([IsAuthenticated, FullPartnerAccess])
+@permission_classes([FullAccess])
 def report_list(request):
     """
     Get list of available reports
@@ -328,7 +328,7 @@ def report_list(request):
 
 
 @api_view(['GET'])
-@permission_classes([IsAuthenticated, FullPartnerAccess])
+@permission_classes([FullAccess])
 def dashboard_access_log(request):
     """
     Get dashboard access log for the current partner
@@ -348,7 +348,7 @@ def dashboard_access_log(request):
 
 
 @api_view(['GET'])
-@permission_classes([IsAuthenticated, FullPartnerAccess])
+@permission_classes([FullAccess])
 def filter_options(request):
     """
     Get available filter options for the partner dashboard

@@ -20,18 +20,17 @@ class MSEViewSet(viewsets.ModelViewSet):
     permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
-        if self.request.user.is_staff_user or self.request.user.is_admin_user:
-            return super().get_queryset()
-        return MSE.objects.filter(owner=self.request.user)
+        # All authenticated users can see all MSEs
+        return super().get_queryset()
 
-    @action(detail=True, methods=['post'], permission_classes=[permissions.IsAdminUser])
+    @action(detail=True, methods=['post'], permission_classes=[permissions.IsAuthenticated])
     def approve(self, request, pk=None):
         mse = self.get_object()
         mse.status = 'approved'
         mse.save(update_fields=['status'])
         return Response({'detail': 'MSE approved'}, status=200)
 
-    @action(detail=True, methods=['post'], permission_classes=[permissions.IsAdminUser])
+    @action(detail=True, methods=['post'], permission_classes=[permissions.IsAuthenticated])
     def reject(self, request, pk=None):
         mse = self.get_object()
         mse.status = 'rejected'
@@ -79,9 +78,8 @@ class WalletViewSet(viewsets.ReadOnlyModelViewSet):
     permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
-        if self.request.user.is_staff_user or self.request.user.is_admin_user:
-            return super().get_queryset()
-        return Wallet.objects.filter(mse__owner=self.request.user)
+        # All authenticated users can see all wallets
+        return super().get_queryset()
 
 
 class SelfRegisterView(APIView):
@@ -149,12 +147,9 @@ class SelfRegisterView(APIView):
                 first_name=request.data.get('first_name', ''),
                 last_name=request.data.get('last_name', ''),
                 phone_number=normalized_phone,
-                nin=request.data.get('nin', ''),
-                is_mse=True,
-                is_admin_user=False,
-                is_staff_user=False,
+                NIN=request.data.get('nin', ''),
+                role='mse',
                 is_approved=False,
-                must_change_password=True,
                 password=temp_password,
             )
 
