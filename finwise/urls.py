@@ -19,39 +19,34 @@ from django.urls import path, include
 from django.conf import settings
 from django.conf.urls.static import static
 
-from authentication.views import ChangePasswordView, LoginView, RegisterUserView
-from .views import api_root
-
 urlpatterns = [
     path('admin/', admin.site.urls),
-    path('api/', api_root, name='api_root'),  # API root endpoint
     
     # Authentication and user management
     path('api/auth/', include('authentication.urls')),
-    # Super admin can create partners at: /api/auth/super-admin/create-partner/
-
-    # Aliased routes for frontend
-    path('api/mse/self-register/', RegisterUserView.as_view(), name='mse-self-register'),
-    path('api/mse/login/', LoginView.as_view(), name='mse-login'),
-    path('api/mse/change-password/', ChangePasswordView.as_view(), name='mse-change-password'),
-    # Core business modules
-    path('api/mse/', include('mse.urls')),
-    path('api/groups/', include('groups.urls')),
-    path('api/loans/', include('loans.urls')),
-    path('api/reports/', include('reports.urls')), # Reporting system
-    path('api/markets/', include('markets.urls')), # Market operations
-    path('api/inventory/', include('inventory.urls')), # Inventory management
-    # Financial and operational modules
-    path('api/wallet/', include('wallet.urls')),   # Wallet management
     
-    # Partner Dashboard
+    # Super Admin endpoints - Full CRUD on users, MSEs, institutions, roles, privileges
+    path('api/admin/', include('admin_urls')),
+    
+    # Agent endpoints - Manage assigned MSEs, view wallet balances, registration status
+    path('api/agent/', include('agent_urls')),
+    
+    # MSE endpoints - Access only their own data: wallet, loans, customers, suppliers, transactions, reports
+    path('api/mse/', include('mse_urls')),
+    
+    # Partner endpoints - Access only to partner dashboard (legacy system)
+    path('api/partner/', include('partner_urls')),
+    
+    # Partner Dashboard (legacy - partners use this)
     path('api/partner-dashboard/', include('partner_dashboard.urls')),
     
-    # Support and compliance
-
-    
-    # USSD banking system
-
+    # Other app endpoints
+    path('api/mse/', include('mse.urls')),
+    path('api/wallet/', include('wallet.urls')),
+    path('api/loans/', include('loans.urls')),
+    path('api/markets/', include('markets.urls')),
+    path('api/inventory/', include('inventory.urls')),
+    path('api/groups/', include('groups.urls')),
 ]
 
 # Serve media files in development
